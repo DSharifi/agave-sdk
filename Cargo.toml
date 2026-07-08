@@ -9,6 +9,7 @@ repository = "https://github.com/anza-xyz/agave-sdk"
 homepage = "https://anza.xyz"
 license = "Apache-2.0"
 edition = "2024"
+rust-version = "1.89.0"
 
 # Clippy lint configuration that can not be applied in clippy.toml
 [workspace.lints.clippy]
