@@ -384,7 +384,7 @@ mod tests {
 
     fn verify_transaction_view_frame(tx: &VersionedTransaction) {
         let bytes = wincode::serialize(tx).unwrap();
-        let view = TransactionView::try_new_unsanitized(bytes.as_ref()).unwrap();
+        let view = TransactionView::try_new_unsanitized(&bytes).unwrap();
 
         assert_eq!(view.num_signatures(), tx.signatures.len() as u8);
 
@@ -472,7 +472,7 @@ mod tests {
     fn test_v1_transaction_config_present() {
         let tx = simple_v1_transaction();
         let bytes = wincode::serialize(&tx).unwrap();
-        let view = TransactionView::try_new_unsanitized(bytes.as_ref()).unwrap();
+        let view = TransactionView::try_new_unsanitized(&bytes).unwrap();
 
         assert!(matches!(view.version(), TransactionVersion::V1));
 
@@ -487,7 +487,7 @@ mod tests {
     fn test_v1_message_data_excludes_signatures() {
         let tx = simple_v1_transaction();
         let bytes = wincode::serialize(&tx).unwrap();
-        let view = TransactionView::try_new_unsanitized(bytes.as_ref()).unwrap();
+        let view = TransactionView::try_new_unsanitized(&bytes).unwrap();
 
         let message_data = view.message_data();
 
@@ -503,7 +503,7 @@ mod tests {
     fn test_v1_signatures_accessible() {
         let tx = simple_v1_transaction();
         let bytes = wincode::serialize(&tx).unwrap();
-        let view = TransactionView::try_new_unsanitized(bytes.as_ref()).unwrap();
+        let view = TransactionView::try_new_unsanitized(&bytes).unwrap();
 
         assert_eq!(view.signatures().len(), 1);
         assert_eq!(view.static_account_keys().len(), 2);

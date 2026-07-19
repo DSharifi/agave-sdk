@@ -4,14 +4,7 @@ pub trait TransactionData {
     fn data(&self) -> &[u8];
 }
 
-impl TransactionData for &[u8] {
-    #[inline]
-    fn data(&self) -> &[u8] {
-        self
-    }
-}
-
-impl TransactionData for std::sync::Arc<Vec<u8>> {
+impl<D: AsRef<[u8]>> TransactionData for D {
     #[inline]
     fn data(&self) -> &[u8] {
         self.as_ref()
