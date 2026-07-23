@@ -19,7 +19,7 @@ use {
     wincode::{SchemaRead, SchemaWrite},
 };
 
-#[derive(Debug, Clone, SchemaWrite, SchemaRead, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TransactionFrame {
     /// Signature framing data.
     signature: SignatureFrame,
