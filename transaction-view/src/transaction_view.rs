@@ -17,6 +17,7 @@ use {
         instruction::SVMInstruction, message_address_table_lookup::SVMMessageAddressTableLookup,
         svm_message::SVMStaticMessage,
     },
+    wincode::{SchemaRead, SchemaWrite},
 };
 
 // alias for convenience
@@ -30,6 +31,7 @@ pub type SanitizedTransactionView<D> = TransactionView<true, D>;
 /// about the layout of the serialized transaction.
 /// The owned `data` is abstracted through the `TransactionData` trait,
 /// so that different containers for the serialized transaction can be used.
+#[derive(Clone, SchemaWrite, SchemaRead)]
 pub struct TransactionView<const SANITIZED: bool, D: TransactionData> {
     data: D,
     frame: TransactionFrame,

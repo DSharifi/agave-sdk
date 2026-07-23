@@ -8,10 +8,11 @@ use {
     },
     core::fmt::{Debug, Formatter},
     solana_svm_transaction::instruction::SVMInstruction,
+    wincode::{SchemaRead, SchemaWrite},
 };
 
 /// Contains metadata about the instructions in a transaction packet.
-#[derive(Debug)]
+#[derive(Debug, Clone, SchemaWrite, SchemaRead)]
 pub(crate) enum InstructionsFrame {
     LegacyAndV0 {
         /// The number of instructions in the transaction.
@@ -27,7 +28,7 @@ pub(crate) enum InstructionsFrame {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, SchemaWrite, SchemaRead)]
 pub struct LegacyAndV0InstructionFrame {
     num_accounts: u16,
     data_len: u16,

@@ -6,6 +6,7 @@ use {
     solana_packet::PACKET_DATA_SIZE,
     solana_pubkey::Pubkey,
     solana_signature::Signature,
+    wincode::{SchemaRead, SchemaWrite},
 };
 
 // The packet has a maximum length of 1232 bytes.
@@ -19,7 +20,7 @@ pub(crate) const MAX_SIGNATURES_PER_PACKET: u8 =
     (PACKET_DATA_SIZE / (core::mem::size_of::<Signature>() + core::mem::size_of::<Pubkey>())) as u8;
 
 /// Metadata for accessing transaction-level signatures in a transaction view.
-#[derive(Debug)]
+#[derive(Debug, Clone, SchemaWrite, SchemaRead)]
 pub(crate) struct SignatureFrame {
     /// The number of signatures in the transaction.
     pub(crate) num_signatures: u8,

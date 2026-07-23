@@ -5,10 +5,11 @@ use {
         transaction_version::TransactionVersion,
     },
     solana_message::MESSAGE_VERSION_PREFIX,
+    wincode::{SchemaRead, SchemaWrite},
 };
 
 /// Metadata for accessing message header fields in a transaction view.
-#[derive(Debug)]
+#[derive(Debug, Clone, SchemaWrite, SchemaRead)]
 pub(crate) struct MessageHeaderFrame {
     /// The offset to the first byte of the message in the transaction packet.
     pub(crate) offset: u16,

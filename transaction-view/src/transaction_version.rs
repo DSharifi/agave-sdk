@@ -1,5 +1,7 @@
+use wincode::{SchemaRead, SchemaWrite};
+
 /// A byte that represents the version of the transaction.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, SchemaWrite, SchemaRead)]
 #[repr(u8)]
 pub enum TransactionVersion {
     #[default]

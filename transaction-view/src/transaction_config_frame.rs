@@ -1,3 +1,5 @@
+use wincode::{SchemaRead, SchemaWrite};
+
 use crate::{
     bytes::{advance_offset_for_array, unchecked_copy_value},
     result::{Result, TransactionViewError},
@@ -17,7 +19,7 @@ use crate::{
 /// Notes:
 /// - `mask_offset == 0` is reserved to mean "not applicable" (legacy/v0).
 /// - Parsed tx-v1 config frames should always have `mask_offset != 0`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, SchemaWrite, SchemaRead)]
 pub(crate) struct TransactionConfigFrame {
     /// Offset of the 4-byte TransactionConfigMask.
     ///

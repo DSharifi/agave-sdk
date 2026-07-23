@@ -28,6 +28,7 @@ solana-short-vec = { workspace = true, features = ["wincode"] }
 solana-signature = { workspace = true }
 solana-svm-transaction = { workspace = true }
 solana-transaction = { workspace = true }
+wincode = { workspace = true }
 
 [dev-dependencies]
 # See order-crates-for-publishing.py for using this unusual `path = "."`

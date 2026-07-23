@@ -16,9 +16,10 @@ use {
     solana_hash::Hash,
     solana_pubkey::Pubkey,
     solana_signature::Signature,
+    wincode::{SchemaRead, SchemaWrite},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, SchemaWrite, SchemaRead)]
 pub(crate) struct TransactionFrame {
     /// Signature framing data.
     signature: SignatureFrame,

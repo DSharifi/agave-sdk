@@ -5,6 +5,7 @@ use {
     },
     solana_packet::PACKET_DATA_SIZE,
     solana_pubkey::Pubkey,
+    wincode::{SchemaRead, SchemaWrite},
 };
 
 // A legacy/v0 packet has a maximum length of 1232 bytes.
@@ -15,7 +16,7 @@ const LEGACY_OR_V0_MAX_STATIC_ACCOUNTS_PER_PACKET: u8 =
     (PACKET_DATA_SIZE / core::mem::size_of::<Pubkey>()) as u8;
 
 /// Contains metadata about the static account keys in a transaction packet.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, SchemaWrite, SchemaRead)]
 pub(crate) struct StaticAccountKeysFrame {
     /// The number of static accounts in the transaction.
     pub(crate) num_static_accounts: u8,
