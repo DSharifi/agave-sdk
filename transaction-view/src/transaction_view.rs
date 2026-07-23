@@ -17,6 +17,7 @@ use {
         instruction::SVMInstruction, message_address_table_lookup::SVMMessageAddressTableLookup,
         svm_message::SVMStaticMessage,
     },
+    wincode::SchemaWrite,
 };
 
 // alias for convenience
@@ -30,9 +31,27 @@ pub type SanitizedTransactionView<D> = TransactionView<true, D>;
 /// about the layout of the serialized transaction.
 /// The owned `data` is abstracted through the `TransactionData` trait,
 /// so that different containers for the serialized transaction can be used.
+#[derive(Clone, PartialEq, Eq)]
 pub struct TransactionView<const SANITIZED: bool, D: TransactionData> {
     data: D,
     frame: TransactionFrame,
+}
+
+unsafe impl<const S: bool, Data, Config> SchemaWrite<Config> for TransactionView<S, Data>
+where
+    Data: TransactionData,
+    Config: wincode::config::ConfigCore,
+{
+    type Src = Self;
+
+    fn size_of(src: &Self) -> wincode::WriteResult<usize> {
+        Ok(src.data_len())
+    }
+    fn write(mut writer: impl wincode::io::Writer, src: &Self) -> wincode::WriteResult<()> {
+        let data = src.data();
+
+        writer.write(data).map_err(Into::into)
+    }
 }
 
 impl<D: TransactionData> TransactionView<false, D> {
@@ -210,8 +229,14 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
     /// [`Self::inner_data`].
     #[inline]
     pub fn data(&self) -> &[u8] {
-        let data_length: usize = self.frame.data_len().into();
+        let data_length: usize = self.data_len();
         &self.data.data()[..data_length]
+    }
+
+    /// Return the length, in bytes, of the full serialized transaction data.
+    #[inline]
+    pub fn data_len(&self) -> usize {
+        self.frame.data_len().into()
     }
 
     /// Return the serialized **message** data.
@@ -644,6 +669,29 @@ mod tests {
         // then sanitization passes and the view excludes the trailing bytes
         assert_eq!(consumed_len, transaction_bytes.len());
         assert_eq!(view.data(), transaction_bytes.as_slice());
+    }
+
+    #[test]
+    fn test_partial_eq_same_transaction() {
+        // given two views over identical serialized transactions
+        let bytes = wincode::serialize(&multiple_transfers()).unwrap();
+        let view_a = TransactionView::try_new_unsanitized(bytes.as_slice()).unwrap();
+        let view_b = TransactionView::try_new_unsanitized(bytes.as_slice()).unwrap();
+
+        // then the views compare equal
+        assert_eq!(view_a, view_b);
+    }
+
+    #[test]
+    fn test_partial_eq_different_transactions() {
+        // given views over two different serialized transactions
+        let legacy_bytes = wincode::serialize(&multiple_transfers()).unwrap();
+        let v1_bytes = wincode::serialize(&simple_v1_transaction()).unwrap();
+        let legacy_view = TransactionView::try_new_unsanitized(legacy_bytes.as_slice()).unwrap();
+        let v1_view = TransactionView::try_new_unsanitized(v1_bytes.as_slice()).unwrap();
+
+        // then the views compare unequal
+        assert_ne!(legacy_view, v1_view);
     }
 
     #[test]
