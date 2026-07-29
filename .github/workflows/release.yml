@@ -26,6 +26,7 @@ jobs:
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       ref: ${{ steps.meta.outputs.ref }}
+      path: ${{ steps.meta.outputs.path }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -42,11 +43,16 @@ jobs:
             exit 1
           fi
 
+          manifest_path="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "'"${CRATE_NAME}"'") | .manifest_path')"
+          path="$(dirname "${manifest_path}")"
+          path="${path#"$PWD"/}"
+
           tag="${CRATE_NAME}@v${version}"
           ref="$(git rev-parse HEAD)"
 
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+          echo "path=${path}" >> "${GITHUB_OUTPUT}"
         env:
           CRATE_NAME: ${{ inputs.crate }}
 
@@ -117,6 +123,8 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
           ref: ${{ needs.check.outputs.ref }}
+          # git-cliff needs full history to walk commits, not the default depth-1 shallow clone.
+          fetch-depth: 0
 
       - name: Package crate
         run: cargo package -p "${CRATE_NAME}"
@@ -145,16 +153,30 @@ jobs:
         env:
           TAG: ${{ needs.check.outputs.tag }}
 
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0
+        with:
+          config: cliff.toml
+          args: >-
+            --include-path "${{ needs.check.outputs.path }}/**"
+            --tag-pattern "^${{ inputs.crate }}@v[0-9]+\.[0-9]+\.[0-9]+$"
+            --latest
+            --strip header
+        env:
+          OUTPUT: CHANGELOG.md
+
       - name: Create Release
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
+            const fs = require('fs')
             const release = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: process.env.TAG,
               name: `${process.env.TAG}`,
+              body: fs.readFileSync('CHANGELOG.md', 'utf8'),
               generate_release_notes: false,
               draft: false,
               prerelease: false
