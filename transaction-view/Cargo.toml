@@ -34,6 +34,7 @@ wincode = { workspace = true }
 # See order-crates-for-publishing.py for using this unusual `path = "."`
 agave-transaction-view = { path = "." }
 criterion = { workspace = true }
+rstest = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }

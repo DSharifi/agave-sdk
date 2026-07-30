@@ -456,6 +456,7 @@ impl<D: TransactionData> SVMStaticMessage for &TransactionView<true, D> {
 mod tests {
     use {
         super::*,
+        rstest::rstest,
         solana_message::{
             Message, MessageHeader, VersionedMessage, compiled_instruction::CompiledInstruction, v1,
         },
@@ -694,10 +695,12 @@ mod tests {
         assert_eq!(view.data(), transaction_bytes.as_slice());
     }
 
-    #[test]
-    fn test_partial_eq_same_transaction() {
+    #[rstest]
+    #[case::legacy(multiple_transfers())]
+    #[case::v1(simple_v1_transaction())]
+    fn test_partial_eq_same_transaction(#[case] transaction: VersionedTransaction) {
         // given two views over identical serialized transactions
-        let bytes = wincode::serialize(&multiple_transfers()).unwrap();
+        let bytes = wincode::serialize(&transaction).unwrap();
         let view_a = TransactionView::try_new_unsanitized(bytes.as_slice()).unwrap();
         let view_b = TransactionView::try_new_unsanitized(bytes.as_slice()).unwrap();
 
