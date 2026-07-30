@@ -31,11 +31,19 @@ pub type SanitizedTransactionView<D> = TransactionView<true, D>;
 /// about the layout of the serialized transaction.
 /// The owned `data` is abstracted through the `TransactionData` trait,
 /// so that different containers for the serialized transaction can be used.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct TransactionView<const SANITIZED: bool, D: TransactionData> {
     data: D,
     frame: TransactionFrame,
 }
+
+impl<const SANITIZED: bool, D: TransactionData> PartialEq for TransactionView<SANITIZED, D> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data() == other.data()
+    }
+}
+
+impl<const SANITIZED: bool, D: TransactionData> Eq for TransactionView<SANITIZED, D> {}
 
 unsafe impl<const S: bool, Data, Config> SchemaWrite<Config> for TransactionView<S, Data>
 where
@@ -87,6 +95,21 @@ impl<D: TransactionData> TransactionView<false, D> {
 }
 
 impl<D: TransactionData> TransactionView<true, D> {
+    /// Clone this view while discarding its type-level sanitization proof.
+    ///
+    /// This does not modify or reparse the transaction. It is useful when a
+    /// sanitized transaction must cross a wire-format boundary whose data is
+    /// intentionally represented as untrusted on the receiving side.
+    pub fn clone_as_unsanitized(&self) -> UnsanitizedTransactionView<D>
+    where
+        D: Clone,
+    {
+        UnsanitizedTransactionView {
+            data: self.data.clone(),
+            frame: self.frame.clone(),
+        }
+    }
+
     /// Creates a new `TransactionView`, running sanitization checks.
     pub fn try_new_sanitized(data: D, config: &SanitizeConfig) -> Result<Self> {
         let unsanitized_view = TransactionView::try_new_unsanitized(data)?;
@@ -683,6 +706,23 @@ mod tests {
     }
 
     #[test]
+    fn test_partial_eq_ignores_trailing_backing_bytes() {
+        // given one exact view and one prefix view backed by trailing bytes
+        let transaction_bytes = wincode::serialize(&multiple_transfers()).unwrap();
+        let exact =
+            TransactionView::try_new_unsanitized(bytes::Bytes::copy_from_slice(&transaction_bytes))
+                .unwrap();
+        let prefixed = TransactionView::try_new_unsanitized_from_prefix(bytes::Bytes::from(
+            append_trailing_bytes(&transaction_bytes),
+        ))
+        .unwrap()
+        .0;
+
+        // then equality is based on the represented transaction bytes
+        assert_eq!(exact, prefixed);
+    }
+
+    #[test]
     fn test_partial_eq_different_transactions() {
         // given views over two different serialized transactions
         let legacy_bytes = wincode::serialize(&multiple_transfers()).unwrap();
@@ -692,6 +732,18 @@ mod tests {
 
         // then the views compare unequal
         assert_ne!(legacy_view, v1_view);
+    }
+
+    #[test]
+    fn test_clone_as_unsanitized_preserves_data_and_frame() {
+        let bytes = bytes::Bytes::from(wincode::serialize(&multiple_transfers()).unwrap());
+        let sanitized = TransactionView::try_new_sanitized(bytes, &test_sanitize_config()).unwrap();
+
+        let unsanitized = sanitized.clone_as_unsanitized();
+
+        assert_eq!(sanitized.data(), unsanitized.data());
+        assert_eq!(sanitized.signatures(), unsanitized.signatures());
+        assert_eq!(sanitized.message_data(), unsanitized.message_data());
     }
 
     #[test]
