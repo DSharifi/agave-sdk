@@ -31,6 +31,7 @@ use {
 ///
 /// The address source defaults to [`LoadedAddresses`]. Other source types can
 /// be used when [`LoadedAddressesView`] implements `From<&A>` for the source.
+#[derive(Clone)]
 pub struct ResolvedTransactionView<D: TransactionData, A = LoadedAddresses> {
     /// The parsed and sanitized transaction view.
     view: TransactionView<true, D>,
