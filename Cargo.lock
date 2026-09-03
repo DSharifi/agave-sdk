@@ -3,6 +3,25 @@
 version = 4
 
 [[package]]
+name = "agave-event-system"
+version = "0.1.0"
+dependencies = [
+ "agave-event-system-derive",
+ "wincode",
+ "wincode-dynamic",
+]
+
+[[package]]
+name = "agave-event-system-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "agave-scheduler-bindings"
 version = "6.0.0"
 
@@ -1587,6 +1606,28 @@ name = "wincode-derive"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d582d9fc9d813264407a9e16bfa16846ccf15ef032f9bbcd700741bdc00255"
+dependencies = [
+ "darling",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "wincode-dynamic"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90aeebbaf013fb2b6cd62e6310b045f4ad18f74a29a340d0c0b2bd6fadf10bfd"
+dependencies = [
+ "wincode",
+ "wincode-dynamic-derive",
+]
+
+[[package]]
+name = "wincode-dynamic-derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2d5cef58bddd25f3e0ffb28400e760784e42cf88e94d61157623c19bc87b2c9"
 dependencies = [
  "darling",
  "proc-macro2",
