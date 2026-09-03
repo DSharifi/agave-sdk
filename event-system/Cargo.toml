@@ -18,5 +18,8 @@ agave-event-system-derive = { workspace = true }
 wincode = { workspace = true }
 wincode-dynamic = { workspace = true, features = ["derive"] }
 
+[dev-dependencies]
+rstest = { workspace = true }
+
 [lints]
 workspace = true
