@@ -1,5 +1,12 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[cfg(target_os = "linux")]
+pub use crate::{
+    event_handle::EventHandle,
+    event_system::{
+        CreateEventHandleError, CreateEventSystemError, EventStreamConfig, EventSystem,
+    },
+};
 pub use {agave_event_system_derive::event, queue_cell::event_queue_cell_size};
 use {
     wincode::{SchemaWrite, config::DefaultConfig},
@@ -15,7 +22,13 @@ pub mod __private {
     }
 }
 
+#[cfg(target_os = "linux")]
+mod event_handle;
+#[cfg(target_os = "linux")]
+mod event_system;
 mod queue_cell;
+#[cfg(target_os = "linux")]
+mod queue_file;
 
 /// An event type that can be sent on an event stream.
 ///
