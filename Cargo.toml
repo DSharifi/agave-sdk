@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "agave-event-system",
-    "agave-event-system-derive",
+    "event-system",
+    "event-system-derive",
     "scheduler-bindings",
     "transaction-view",
 ]
@@ -29,6 +29,9 @@ used_underscore_binding = "deny"
 new_without_default = "allow"
 
 [workspace.dependencies]
+# workspace members
+agave-event-system-derive = { path = "event-system-derive" }
+
 bytes = "1.12.1"
 criterion = "0.8.2"
 proc-macro-crate = "3.5.0"
@@ -48,7 +51,7 @@ solana-svm-transaction = "5.0.0"
 solana-system-interface = { version = "3.3", features = ["alloc", "wincode"] }
 solana-transaction = "4.2.0"
 syn = "2.0.118"
-wincode = { version = "0.6.0", features = ["derive"] }
+wincode = { version = "0.6.1", features = ["derive"] }
 wincode-dynamic = { version = "0.2.0" }
 
 [profile.release]

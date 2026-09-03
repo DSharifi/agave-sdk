@@ -14,7 +14,7 @@ all-features = true
 rustdoc-args = ["--cfg=docsrs"]
 
 [dependencies]
-agave-event-system-derive = { path = "../agave-event-system-derive" }
+agave-event-system-derive = { workspace = true }
 wincode = { workspace = true }
 wincode-dynamic = { workspace = true, features = ["derive"] }
 
