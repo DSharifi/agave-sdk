@@ -7,7 +7,11 @@ name = "agave-event-system"
 version = "0.1.0"
 dependencies = [
  "agave-event-system-derive",
+ "getrandom 0.4.3",
+ "libc",
  "rstest",
+ "shaq",
+ "tempfile",
  "thiserror",
  "wincode",
  "wincode-dynamic",

@@ -25,7 +25,7 @@ pub(crate) struct EventQueueError;
 pub(crate) struct EventSystem;
 
 impl EventSystem {
-    pub(crate) fn create(
+    pub(crate) fn new(
         _event_system_directory: impl AsRef<Path>,
     ) -> Result<Self, CreateEventSystemError> {
         Ok(Self)

@@ -19,8 +19,14 @@ thiserror = { workspace = true }
 wincode = { workspace = true }
 wincode-dynamic = { workspace = true, features = ["derive"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+getrandom = { workspace = true, features = ["std"] }
+libc = { workspace = true }
+shaq = { workspace = true }
+
 [dev-dependencies]
 rstest = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
