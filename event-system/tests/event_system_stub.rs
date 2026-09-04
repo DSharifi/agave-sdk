@@ -1,3 +1,5 @@
+#![cfg(not(target_os = "linux"))]
+
 use agave_event_system::{EventStreamConfig, EventSystem, event};
 
 #[event]

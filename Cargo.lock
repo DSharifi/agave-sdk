@@ -7,7 +7,10 @@ name = "agave-event-system"
 version = "0.1.0"
 dependencies = [
  "agave-event-system-derive",
+ "libc",
  "rstest",
+ "shaq",
+ "tempfile",
  "thiserror",
  "wincode",
  "wincode-dynamic",
@@ -1212,8 +1215,7 @@ dependencies = [
 [[package]]
 name = "shaq"
 version = "4.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "409fbc30bb3899d634b1414fd42d946f1f980faf3e2cd209a564b45c189f82f8"
+source = "git+https://github.com/anza-xyz/shaq?rev=d9fb20952a8852c99264eb0727157c1f40ff7810#d9fb20952a8852c99264eb0727157c1f40ff7810"
 dependencies = [
  "libc",
  "windows-sys",

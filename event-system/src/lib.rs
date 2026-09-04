@@ -4,6 +4,9 @@
 //! On all other targets, the public API is available but all operations are
 //! no-ops.
 
+#[cfg(test)]
+extern crate self as agave_event_system;
+
 pub use {
     crate::{
         event_handle::EventHandle,
