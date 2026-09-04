@@ -166,7 +166,13 @@ mod tests {
     #[test]
     fn event_system_stores_an_absolute_path() {
         let temporary_directory = tempfile::TempDir::new_in(".").unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
+        let event_system_directory = std::path::PathBuf::from(
+            temporary_directory
+                .path()
+                .file_name()
+                .expect("temporary directory has a file name"),
+        )
+        .join("event-system");
         assert!(event_system_directory.is_relative());
 
         let event_system = EventSystem::create(event_system_directory).unwrap();
