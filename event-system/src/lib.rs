@@ -1,6 +1,20 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
+//! An event system implemented on Linux.
+//!
+//! On all other targets, the public API is available but all operations are
+//! no-ops.
 
-pub use {agave_event_system_derive::event, queue_cell::event_queue_cell_size};
+pub use {
+    crate::{
+        event_handle::EventHandle,
+        event_system::{
+            CreateEventHandleError, CreateEventSystemError, EventQueueError, EventStreamConfig,
+            EventSystem,
+        },
+    },
+    agave_event_system_derive::event,
+    queue_cell::event_queue_cell_size,
+};
 use {
     wincode::{SchemaWrite, config::DefaultConfig},
     wincode_dynamic::SchemaDynamic,
@@ -15,6 +29,9 @@ pub mod __private {
     }
 }
 
+mod backend;
+mod event_handle;
+mod event_system;
 mod queue_cell;
 
 /// An event type that can be sent on an event stream.
