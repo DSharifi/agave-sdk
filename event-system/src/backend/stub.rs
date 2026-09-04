@@ -6,6 +6,10 @@ use {
     std::{marker::PhantomData, path::Path},
 };
 
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("infallible error case for stub implementation.")]
+pub(crate) struct EventQueueError;
+
 #[derive(Debug, Clone)]
 pub(crate) struct EventSystem;
 

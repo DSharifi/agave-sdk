@@ -59,7 +59,7 @@ pub struct CreateEventSystemError(#[from] std::io::Error);
 /// An error reported by the platform event-queue implementation.
 #[derive(Debug, Error)]
 #[error("{0}")]
-pub struct EventQueueError(#[source] pub(crate) Box<dyn std::error::Error + Send + Sync + 'static>);
+pub struct EventQueueError(#[source] pub(crate) backend::EventQueueError);
 
 #[derive(Debug, Error)]
 pub enum CreateEventHandleError {
