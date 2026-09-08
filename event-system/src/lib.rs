@@ -4,6 +4,7 @@
 //! On all other targets, the public API is available but all operations are
 //! no-ops.
 
+// Comment-only change to check CI behavior.
 pub use {
     crate::{
         event_handle::EventHandle,
