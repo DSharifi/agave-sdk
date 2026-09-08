@@ -9,7 +9,7 @@ use {
     shaq::broadcast::{Broadcast, BroadcastConfig},
     std::{
         ffi::CString,
-        fs::{File, OpenOptions, create_dir},
+        fs::{File, OpenOptions, create_dir, remove_dir_all},
         io::{self, Write},
         os::{
             fd::{AsRawFd, FromRawFd},
@@ -18,6 +18,7 @@ use {
         path::{Path, PathBuf, absolute},
         sync::Arc,
     },
+    uuid::Uuid,
 };
 
 // Layout of the event-system directory:
@@ -26,23 +27,27 @@ use {
 // ├── tmp/
 // │   └── transaction-events<random>/
 // │       ├── queue
+// │       ├── queue-identity
 // │       └── schema
 // └── event-streams/
 //     ├── shred-events/
 //     │   ├── queue
+//     │   ├── queue-identity
 //     │   └── schema
 //     └── slot-events/
 //         ├── queue
+//         ├── queue-identity
 //         └── schema
 //
 const EVENT_QUEUE_FILE_NAME: &str = "queue";
+const EVENT_QUEUE_IDENTITY_FILE_NAME: &str = "queue-identity";
 const EVENT_SCHEMA_FILE_NAME: &str = "schema";
 const EVENT_STAGING_DIRECTORY_NAME: &str = "tmp";
 const EVENT_STREAMS_DIRECTORY_NAME: &str = "event-streams";
 
 // Seals required by shaq's safety contract to prevent the file from resizing.
 const REQUIRED_SEALS: libc::c_int = libc::F_SEAL_SHRINK | libc::F_SEAL_GROW | libc::F_SEAL_SEAL;
-const ANONYMOUS_FILE_NAME: *const libc::c_char = c"agave-event-stream".as_ptr();
+const ANONYMOUS_FILE_NAME_PREFIX: &str = "agave-event-stream";
 
 pub(crate) type EventQueueError = shaq::error::Error;
 
@@ -110,10 +115,53 @@ impl EventSystem {
             }
         };
 
-        // SAFETY: ANONYMOUS_FILE_NAME points to a valid static C string.
+        // file descriptors can be reused.
+        // By attaching a random identity to each event stream we guard
+        // against race conditions where one stream is halfway closed
+        // but the symlinked queue file points to a new file with a file
+        // descriptor that is reused.
+        //
+        //
+        // Example Scenario we guard for:
+        // 1. subscriber follows A/queue and obtains "/proc/123/fd/42"
+        // 2. subscriber pauses
+        //
+        // 3. publisher removes A’s directory and closes 42
+        // 4. publisher creates B, which receives 42
+        //
+        // 5. subscriber resumes and opens 42 - receiving B instead of A
+        //
+        //
+        // Solution:
+        // 1. publisher stores the same random UUID in A/queue-identity and
+        //    A's memfd name.
+        // 2. subscriber opens A's directory and reads the expected UUID and
+        //    schema relative to that open directory.
+        // 3. subscriber opens queue relative to the same directory. During
+        //    this call, the kernel may follow the symlink, pause, and then
+        //    resolve /proc/123/fd/42 after the publisher has reused 42 for B.
+        // 4. subscriber reads /proc/self/fd/<its-opened-fd> to get the memfd
+        //    name of the file it actually opened and extracts its UUID.
+        // 5. if the UUID differs from the expected UUID, it closes the file
+        //    and retries discovery. In this example, B's UUID differs from A's,
+        //    so the subscriber rejects B before joining the queue.
+        // 6. if the UUID matches, it maps and joins that same open file.
+        //    Reusing the publisher's fd cannot change the subscriber's open
+        //    file, so the match remains valid after the check.
+        //
+        // If any required file is missing, the subscriber retries discovery.
+        let queue_identity = Uuid::new_v4();
+        let anonymous_file_name = CString::new(format!(
+            "{ANONYMOUS_FILE_NAME_PREFIX}-{queue_identity}"
+        ))
+        .expect(
+            "<<ANONYMOUS_FILE_NAME_PREFIX>>-<<random_queue_file_identity>> contains no NUL bytes",
+        );
+
+        // SAFETY: anonymous_file_name is a valid C string.
         let anonymous_file_file_descriptor = unsafe {
             libc::memfd_create(
-                ANONYMOUS_FILE_NAME,
+                anonymous_file_name.as_ptr(),
                 libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING,
             )
         };
@@ -134,6 +182,15 @@ impl EventSystem {
         let seal_result =
             unsafe { libc::fcntl(queue_file_descriptor, libc::F_ADD_SEALS, REQUIRED_SEALS) };
         check_libc_result(seal_result)?;
+
+        // A subscriber can finish following the symlink after teardown has
+        // closed and reused the descriptor. The random ID in the memfd name
+        // lets it reject that race without relying on inode numbers, which can
+        // also be reused (see the attachment check in the crate docs).
+        let queue_identity_file_path = temporary_event_stream_directory
+            .path()
+            .join(EVENT_QUEUE_IDENTITY_FILE_NAME);
+        std::fs::write(queue_identity_file_path, format!("{queue_identity}\n"))?;
 
         let queue_file_path = temporary_event_stream_directory
             .path()
@@ -169,7 +226,11 @@ impl EventSystem {
 
         temporary_event_stream_directory.disable_cleanup(true);
 
-        Ok(EventHandle::new(broadcast, Arc::new(queue_file)))
+        Ok(EventHandle::new(
+            broadcast,
+            queue_file,
+            event_stream_directory,
+        ))
     }
 
     fn event_stream_directory(&self, event_stream_name: &str) -> Option<PathBuf> {
@@ -186,16 +247,35 @@ impl EventSystem {
     }
 }
 
+// Shared publication lifetime. Future producer handles must also retain this
+// Arc: a shaq producer keeps the mapping alive, but not the published fd.
+struct EventStream {
+    directory: PathBuf,
+    // Retain the published descriptor until after Drop removes the directory.
+    _queue_file: File,
+}
+
+impl Drop for EventStream {
+    fn drop(&mut self) {
+        // File fields are dropped after this method returns. If cleanup fails,
+        // subscribers can still reject a reused descriptor via queue-identity.
+        let _ = remove_dir_all(&self.directory);
+    }
+}
+
 pub(crate) struct EventHandle<E: Event> {
     pub(crate) broadcast: Broadcast<E::QueueCell>,
-    pub(crate) queue_file: Arc<File>,
+    stream: Arc<EventStream>,
 }
 
 impl<E: Event> EventHandle<E> {
-    fn new(broadcast: Broadcast<E::QueueCell>, queue_file: Arc<File>) -> Self {
+    fn new(broadcast: Broadcast<E::QueueCell>, queue_file: File, directory: PathBuf) -> Self {
         Self {
             broadcast,
-            queue_file,
+            stream: Arc::new(EventStream {
+                directory,
+                _queue_file: queue_file,
+            }),
         }
     }
 }
@@ -204,7 +284,7 @@ impl<E: Event> Clone for EventHandle<E> {
     fn clone(&self) -> Self {
         Self {
             broadcast: self.broadcast.clone(),
-            queue_file: Arc::clone(&self.queue_file),
+            stream: Arc::clone(&self.stream),
         }
     }
 }
@@ -222,15 +302,18 @@ impl<E: Event> std::fmt::Debug for EventHandle<E> {
 mod tests {
     use {
         super::{
-            EVENT_QUEUE_FILE_NAME, EVENT_SCHEMA_FILE_NAME, EVENT_STAGING_DIRECTORY_NAME,
-            EVENT_STREAMS_DIRECTORY_NAME, EventSystem,
+            EVENT_QUEUE_FILE_NAME, EVENT_QUEUE_IDENTITY_FILE_NAME, EVENT_SCHEMA_FILE_NAME,
+            EVENT_STAGING_DIRECTORY_NAME, EVENT_STREAMS_DIRECTORY_NAME, EventSystem,
         },
-        crate::{CreateEventHandleError, EventStreamConfig, event},
+        crate::{CreateEventHandleError, Event, EventStreamConfig, event},
+        shaq::broadcast::{Broadcast, ProducerId},
         std::{
             assert_matches,
-            fs::OpenOptions,
+            fs::{File, OpenOptions},
             io::{self, ErrorKind},
-            os::fd::AsRawFd,
+            os::fd::{AsRawFd, FromRawFd},
+            path::PathBuf,
+            process::Command,
         },
         tempfile::TempDir,
         wincode_dynamic::RootSchema,
@@ -468,5 +551,131 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn last_handle_unpublishes_before_descriptor_reuse() {
+        const CHILD_ENV: &str = "AGAVE_EVENT_FD_REUSE_TEST";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            // Isolate fd allocation from the other parallel tests so reuse is
+            // deterministic, without overwriting a descriptor they might own.
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "backend::linux::tests::last_handle_unpublishes_before_descriptor_reuse",
+                    "--nocapture",
+                ])
+                .env(CHILD_ENV, "1")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            return;
+        }
+
+        let temporary_directory = TempDir::new().unwrap();
+        let directory = temporary_directory.path().join("event-system");
+        let system = EventSystem::create(&directory).unwrap();
+        let stream_path = directory.join(EVENT_STREAMS_DIRECTORY_NAME).join("a");
+        let queue_path = stream_path.join(EVENT_QUEUE_FILE_NAME);
+        let handle = system
+            .create_event_handle::<TestEvent>("a", TEST_CONFIG)
+            .unwrap();
+        let clone = handle.clone();
+
+        // Keep the original directory open, as a subscriber must do when
+        // reading the schema, identity and queue across multiple syscalls.
+        let stream_directory = File::open(&stream_path).unwrap();
+        let pinned_path = PathBuf::from(format!("/proc/self/fd/{}", stream_directory.as_raw_fd()));
+        let expected_identity =
+            std::fs::read_to_string(pinned_path.join(EVENT_QUEUE_IDENTITY_FILE_NAME)).unwrap();
+        let proc_path = std::fs::read_link(&queue_path).unwrap();
+        let original_fd: libc::c_int = proc_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let queue = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&queue_path)
+            .unwrap();
+        assert_eq!(queue_identity(&queue), expected_identity);
+        // SAFETY: this is TestEvent's initialized, sealed byte-array queue.
+        let joined = unsafe { Broadcast::<<TestEvent as Event>::QueueCell>::join(&queue) }.unwrap();
+        let mut consumer = joined.consumer().unwrap();
+        let mut producer = handle.broadcast.producer(ProducerId::new(1)).unwrap();
+
+        drop(handle);
+        assert!(stream_path.exists());
+        assert_eq!(
+            queue_identity(&File::open(&queue_path).unwrap()),
+            expected_identity
+        );
+
+        let other_handle = system
+            .create_event_handle::<TestEvent>("b", TEST_CONFIG)
+            .unwrap();
+        let other_queue = File::open(
+            directory
+                .join(EVENT_STREAMS_DIRECTORY_NAME)
+                .join("b")
+                .join(EVENT_QUEUE_FILE_NAME),
+        )
+        .unwrap();
+        drop(clone);
+        assert!(!stream_path.exists());
+
+        // SAFETY: other_queue is valid. F_DUPFD_CLOEXEC allocates a new fd
+        // starting at original_fd without overwriting any existing descriptor.
+        let reused_fd =
+            unsafe { libc::fcntl(other_queue.as_raw_fd(), libc::F_DUPFD_CLOEXEC, original_fd) };
+        assert_eq!(reused_fd, original_fd);
+        // SAFETY: fcntl returned a new owned descriptor.
+        let reused_file = unsafe { File::from_raw_fd(reused_fd) };
+        assert_eq!(queue_identity(&reused_file), queue_identity(&other_queue));
+        assert_eq!(
+            File::open(&queue_path).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+
+        // Simulate a subscriber that resolved the symlink before teardown but
+        // opened its /proc target after fd reuse: the saved identity rejects B.
+        let stale_queue = File::open(proc_path).unwrap();
+        assert_ne!(queue_identity(&stale_queue), expected_identity);
+        assert_eq!(queue_identity(&queue), expected_identity);
+        producer.try_write(42u64.to_le_bytes()).unwrap();
+        assert_eq!(consumer.try_read(), Some(42u64.to_le_bytes()));
+
+        let replacement = system
+            .create_event_handle::<TestEvent>("a", TEST_CONFIG)
+            .unwrap();
+        assert_ne!(
+            queue_identity(&File::open(&queue_path).unwrap()),
+            expected_identity,
+        );
+        assert_eq!(
+            File::open(pinned_path.join(EVENT_QUEUE_FILE_NAME))
+                .unwrap_err()
+                .kind(),
+            ErrorKind::NotFound,
+        );
+        drop((replacement, other_handle));
+    }
+
+    fn queue_identity(queue: &File) -> String {
+        // Inspect the subscriber's opened file, not the publisher's fd path.
+        let target = std::fs::read_link(format!("/proc/self/fd/{}", queue.as_raw_fd())).unwrap();
+        let identity = target
+            .to_str()
+            .unwrap()
+            .strip_prefix("/memfd:agave-event-stream-")
+            .unwrap()
+            .strip_suffix(" (deleted)")
+            .unwrap();
+        assert_eq!(identity.len(), 32);
+        u128::from_str_radix(identity, 16).unwrap();
+        format!("{identity}\n")
     }
 }

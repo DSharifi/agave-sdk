@@ -1,6 +1,10 @@
 use crate::{Event, backend};
 
 /// A handle to a typed event stream.
+///
+/// On Linux, this handle keeps the stream published. The last owner of the
+/// stream removes its directory before closing the published queue descriptor.
+/// Already attached subscribers retain their queue.
 pub struct EventHandle<E: Event> {
     backend: backend::EventHandle<E>,
 }

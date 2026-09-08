@@ -3,6 +3,17 @@
 //!
 //! On all other targets, the public API is available but all operations are
 //! no-ops.
+//!
+//! On Linux, a published stream contains `schema`, a `queue` symlink, and
+//! `queue-identity` (a random 128-bit ID encoded as 32 lowercase hexadecimal
+//! digits followed by a newline). The same ID is included in the memfd name.
+//! Subscribers must open all three relative to the same open stream directory.
+//! Before joining the opened queue, read its `/proc/self/fd/<fd>` link and
+//! require the target to equal `/memfd:agave-event-stream-<id> (deleted)`, where
+//! `<id>` is the published ID without its newline. Check and map the same open
+//! queue file. Reject a mismatch or missing file and retry from discovery.
+//! Keeping the directory open prevents mixing metadata from streams recreated
+//! under the same name.
 
 #[cfg(test)]
 extern crate self as agave_event_system;
