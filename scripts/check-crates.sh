@@ -40,7 +40,7 @@ for file in "${files[@]}"; do
     continue
   fi
 
-  response=$(curl -s https://crates.io/api/v1/crates/"$crate_name"/owners)
+  response=$(curl --fail-with-body --silent --show-error https://crates.io/api/v1/crates/"$crate_name"/owners)
   errors=$(echo "$response" | jq .errors)
   if [[ $errors != "null" ]]; then
     details=$(echo "$response" | jq .errors | jq -r ".[0].detail")
