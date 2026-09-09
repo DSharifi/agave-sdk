@@ -28,6 +28,7 @@ pub mod __private {
     }
 }
 
+#[path = "backend/stub.rs"]
 mod backend;
 mod event_system;
 mod producer_factory;
