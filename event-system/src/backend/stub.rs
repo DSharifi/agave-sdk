@@ -1,7 +1,7 @@
 use {
     crate::{
         Event,
-        event_system::{CreateEventHandleError, CreateEventSystemError, EventStreamConfig},
+        event_system::{CreateEventSystemError, CreateStreamError, StreamConfig},
     },
     std::{marker::PhantomData, path::Path},
 };
@@ -20,20 +20,20 @@ impl EventSystem {
         Ok(Self)
     }
 
-    pub(crate) fn create_event_handle<E: Event>(
+    pub(crate) fn create_stream<E: Event>(
         &self,
-        _event_stream_name: &str,
-        _event_stream_config: EventStreamConfig,
-    ) -> Result<EventHandle<E>, CreateEventHandleError> {
-        Ok(EventHandle::new())
+        _stream_name: &str,
+        _stream_config: StreamConfig,
+    ) -> Result<ProducerFactory<E>, CreateStreamError> {
+        Ok(ProducerFactory::new())
     }
 }
 
-pub(crate) struct EventHandle<E: Event> {
+pub(crate) struct ProducerFactory<E: Event> {
     _queue_cell: PhantomData<E::QueueCell>,
 }
 
-impl<E: Event> EventHandle<E> {
+impl<E: Event> ProducerFactory<E> {
     fn new() -> Self {
         Self {
             _queue_cell: PhantomData,
@@ -41,14 +41,14 @@ impl<E: Event> EventHandle<E> {
     }
 }
 
-impl<E: Event> Clone for EventHandle<E> {
+impl<E: Event> Clone for ProducerFactory<E> {
     fn clone(&self) -> Self {
         Self::new()
     }
 }
 
-impl<E: Event> std::fmt::Debug for EventHandle<E> {
+impl<E: Event> std::fmt::Debug for ProducerFactory<E> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("EventHandle").finish()
+        formatter.debug_struct("ProducerFactory").finish()
     }
 }
