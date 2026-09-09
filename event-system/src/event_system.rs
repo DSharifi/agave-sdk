@@ -1,5 +1,5 @@
 use {
-    crate::{Event, EventHandle, backend},
+    crate::{Event, ProducerFactory, backend},
     std::path::Path,
     thiserror::Error,
 };
@@ -23,15 +23,16 @@ impl EventSystem {
         })
     }
 
-    /// Creates a stream named `event_stream_name` for event type `E`.
-    pub fn create_event_handle<E: Event>(
+    /// Creates a stream named `stream_name` for event type `E`
+    /// and returns its [`ProducerFactory`].
+    pub fn create_stream<E: Event>(
         &self,
-        event_stream_name: &str,
-        event_stream_config: EventStreamConfig,
-    ) -> Result<EventHandle<E>, CreateEventHandleError> {
+        stream_name: &str,
+        stream_config: StreamConfig,
+    ) -> Result<ProducerFactory<E>, CreateStreamError> {
         self.backend
-            .create_event_handle::<E>(event_stream_name, event_stream_config)
-            .map(EventHandle::new)
+            .create_stream::<E>(stream_name, stream_config)
+            .map(ProducerFactory::new)
     }
 }
 
@@ -43,7 +44,7 @@ impl std::fmt::Debug for EventSystem {
 
 /// Capacity and participant limits for an event stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EventStreamConfig {
+pub struct StreamConfig {
     /// Number of events retained in each producer queue.
     pub capacity: usize,
     /// Maximum number of concurrent producers.
@@ -62,9 +63,9 @@ pub struct CreateEventSystemError(#[from] std::io::Error);
 pub struct EventQueueError(#[source] pub(crate) backend::EventQueueError);
 
 #[derive(Debug, Error)]
-pub enum CreateEventHandleError {
+pub enum CreateStreamError {
     #[error("event stream name `{0}` is invalid")]
-    InvalidEventStreamName(String),
+    InvalidStreamName(String),
     #[error("failed to serialize the event-stream schema")]
     FailedToSerializeSchema(#[source] wincode::WriteError),
     #[error("failed to create the event-stream files")]

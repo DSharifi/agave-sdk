@@ -1,3 +1,3 @@
 mod stub;
 
-pub(crate) use stub::{EventHandle, EventQueueError, EventSystem};
+pub(crate) use stub::{EventQueueError, EventSystem, ProducerFactory};

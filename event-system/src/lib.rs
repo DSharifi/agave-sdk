@@ -6,11 +6,10 @@
 
 pub use {
     crate::{
-        event_handle::EventHandle,
         event_system::{
-            CreateEventHandleError, CreateEventSystemError, EventQueueError, EventStreamConfig,
-            EventSystem,
+            CreateEventSystemError, CreateStreamError, EventQueueError, EventSystem, StreamConfig,
         },
+        producer_factory::ProducerFactory,
     },
     agave_event_system_derive::event,
     queue_cell::event_queue_cell_size,
@@ -30,8 +29,8 @@ pub mod __private {
 }
 
 mod backend;
-mod event_handle;
 mod event_system;
+mod producer_factory;
 mod queue_cell;
 
 /// An event type that can be sent on an event stream.
