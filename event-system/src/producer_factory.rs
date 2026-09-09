@@ -1,4 +1,4 @@
-use crate::{Event, backend};
+use crate::{Event, backend, producer::Producer};
 
 /// A handle to a typed [`Event`] stream that can create producers
 /// on demand.
@@ -7,6 +7,10 @@ pub struct ProducerFactory<E: Event> {
 }
 
 impl<E: Event> ProducerFactory<E> {
+    pub fn try_create_producer(&self) -> Option<Producer<E>> {
+        self.backend.try_create_producer().map(Producer::new)
+    }
+
     pub(crate) fn new(backend: backend::ProducerFactory<E>) -> Self {
         Self { backend }
     }

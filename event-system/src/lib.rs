@@ -9,6 +9,7 @@ pub use {
         event_system::{
             CreateEventSystemError, CreateStreamError, EventQueueError, EventSystem, StreamConfig,
         },
+        producer::Producer,
         producer_factory::ProducerFactory,
     },
     agave_event_system_derive::event,
@@ -31,6 +32,7 @@ pub mod __private {
 #[path = "backend/stub.rs"]
 mod backend;
 mod event_system;
+mod producer;
 mod producer_factory;
 mod queue_cell;
 
