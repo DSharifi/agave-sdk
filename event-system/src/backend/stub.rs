@@ -2,9 +2,20 @@ use {
     crate::{
         Event,
         event_system::{CreateEventSystemError, CreateStreamError, StreamConfig},
+        producer::EmitEventError,
     },
     std::{marker::PhantomData, path::Path},
 };
+
+pub(crate) struct Producer<E> {
+    _data: PhantomData<E>,
+}
+
+impl<E> Producer<E> {
+    pub(crate) fn emit_event(&mut self, _event: &E) -> Result<(), EmitEventError> {
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("infallible error case for stub implementation.")]
@@ -38,6 +49,10 @@ impl<E: Event> ProducerFactory<E> {
         Self {
             _queue_cell: PhantomData,
         }
+    }
+
+    pub(crate) fn try_create_producer(&self) -> Option<Producer<E>> {
+        Some(Producer { _data: PhantomData })
     }
 }
 
