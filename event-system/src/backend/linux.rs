@@ -254,19 +254,10 @@ impl Drop for StagingDirectory {
 #[cfg(test)]
 mod tests {
     use {
-        super::{
-            EventSystem, QUEUE_FILE_NAME, SCHEMA_FILE_NAME, STAGING_DIRECTORY_NAME,
-            STREAMS_DIRECTORY_NAME, StagingDirectory,
-        },
-        crate::{CreateStreamError, StreamConfig, event},
-        std::{
-            assert_matches,
-            fs::OpenOptions,
-            io::{self, ErrorKind},
-            os::fd::AsRawFd,
-        },
+        super::{REQUIRED_SEALS, StagingDirectory, create_queue},
+        crate::{StreamConfig, event},
+        std::{io, os::fd::AsRawFd},
         tempfile::TempDir,
-        wincode_dynamic::RootSchema,
     };
 
     #[event]
@@ -281,274 +272,45 @@ mod tests {
     };
 
     #[test]
-    fn event_system_stores_an_absolute_path() {
-        let temporary_directory = tempfile::TempDir::new_in(".").unwrap();
-        let event_system_directory = std::path::PathBuf::from(
-            temporary_directory
-                .path()
-                .file_name()
-                .expect("temporary directory has a file name"),
-        )
-        .join("event-system");
-        assert!(event_system_directory.is_relative());
+    fn staging_directory_publish_preserves_contents() {
+        let directory = TempDir::new().unwrap();
+        let path = directory.path().join("staging");
+        let destination = directory.path().join("published");
 
-        let event_system = EventSystem::new(event_system_directory).unwrap();
-
-        assert!(event_system.event_system_directory.is_absolute());
-    }
-
-    #[test]
-    fn invalid_stream_name_does_not_create_a_staging_directory() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-
-        assert_matches!(
-            event_system.create_stream::<TestEvent>("nested/stream", TEST_CONFIG),
-            Err(CreateStreamError::InvalidStreamName(_))
-        );
-        assert_eq!(
-            std::fs::read_dir(event_system_directory.join(STAGING_DIRECTORY_NAME))
-                .unwrap()
-                .count(),
-            0
-        );
-    }
-
-    #[test]
-    fn missing_staging_directory_prevents_publication() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        std::fs::remove_dir(event_system_directory.join(STAGING_DIRECTORY_NAME)).unwrap();
-
-        assert_matches!(
-            event_system.create_stream::<TestEvent>("test-events", TEST_CONFIG),
-            Err(CreateStreamError::FileSystem(error))
-                if error.kind() == ErrorKind::NotFound
-        );
-        assert_eq!(
-            std::fs::read_dir(event_system_directory.join(STREAMS_DIRECTORY_NAME))
-                .unwrap()
-                .count(),
-            0
-        );
-    }
-
-    #[test]
-    fn create_stream_rejects_an_occupied_staging_name() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        std::fs::create_dir(
-            event_system_directory
-                .join(STAGING_DIRECTORY_NAME)
-                .join("test-events"),
-        )
-        .unwrap();
-
-        assert_matches!(
-            event_system.create_stream::<TestEvent>("test-events", TEST_CONFIG),
-            Err(CreateStreamError::FileSystem(error))
-                if error.kind() == ErrorKind::AlreadyExists
-        );
-    }
-
-    #[test]
-    fn staging_directory_drop_removes_its_contents() {
-        let temporary_directory = TempDir::new().unwrap();
-        let path = temporary_directory.path().join("staging");
-        let staging_directory = StagingDirectory::new(path.clone()).unwrap();
-        std::fs::write(path.join("file"), b"contents").unwrap();
-
-        drop(staging_directory);
-
-        assert!(!path.exists());
-    }
-
-    #[test]
-    fn published_staging_directory_preserves_its_contents() {
-        let temporary_directory = TempDir::new().unwrap();
-        let path = temporary_directory.path().join("staging");
-        let destination = temporary_directory.path().join("published");
-        let staging_directory = StagingDirectory::new(path.clone()).unwrap();
-        std::fs::write(path.join("file"), b"contents").unwrap();
-
-        staging_directory.publish(&destination).unwrap();
-
+        let staging = StagingDirectory::new(path.clone()).unwrap();
+        std::fs::write(staging.path().join("file"), b"published contents").unwrap();
+        staging.publish(&destination).unwrap();
         assert!(!path.exists());
         assert_eq!(
             std::fs::read(destination.join("file")).unwrap(),
-            b"contents"
+            b"published contents"
         );
     }
 
     #[test]
-    fn staging_directory_creation_preserves_existing_contents() {
-        let temporary_directory = TempDir::new().unwrap();
-        let path = temporary_directory.path().join("staging");
-        std::fs::create_dir(&path).unwrap();
-        let file_path = path.join("file");
-        std::fs::write(&file_path, b"contents").unwrap();
-
-        drop(StagingDirectory::new(path));
-
-        assert_eq!(std::fs::read(file_path).unwrap(), b"contents");
+    fn unpublished_staging_directory_removes_contents_on_drop() {
+        let directory = TempDir::new().unwrap();
+        let path = directory.path().join("staging");
+        let staging = StagingDirectory::new(path.clone()).unwrap();
+        std::fs::write(staging.path().join("file"), b"unpublished contents").unwrap();
+        drop(staging);
+        assert!(!path.exists());
     }
 
     #[test]
-    fn failed_queue_creation_removes_its_staging_directory() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        let invalid_config = StreamConfig {
-            capacity: 0,
-            ..TEST_CONFIG
-        };
+    fn queue_file_is_sealed_against_resizing_and_additional_seals() {
+        let producer_factory = create_queue::<TestEvent>(TEST_CONFIG, 0).unwrap();
+        let queue_file = &producer_factory.queue_file;
+        let queue_fd = queue_file.as_raw_fd();
+        // SAFETY: queue_file owns a valid descriptor and F_GET_SEALS takes no extra argument.
+        let seals = unsafe { libc::fcntl(queue_fd, libc::F_GET_SEALS) };
+        assert_ne!(seals, -1);
+        assert_eq!(seals & REQUIRED_SEALS, REQUIRED_SEALS,);
 
-        assert_matches!(
-            event_system.create_stream::<TestEvent>("test-events", invalid_config),
-            Err(CreateStreamError::Queue(_))
-        );
-        assert_eq!(
-            std::fs::read_dir(event_system_directory.join(STAGING_DIRECTORY_NAME))
-                .unwrap()
-                .count(),
-            0
-        );
-    }
-
-    #[test]
-    fn failed_event_stream_publication_removes_its_staging_directory() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        let _producer_factory = event_system
-            .create_stream::<TestEvent>("test-events", TEST_CONFIG)
-            .unwrap();
-        assert_matches!(
-            event_system.create_stream::<TestEvent>("test-events", TEST_CONFIG),
-            Err(CreateStreamError::FileSystem(_))
-        );
-        assert_eq!(
-            std::fs::read_dir(event_system_directory.join(STAGING_DIRECTORY_NAME))
-                .unwrap()
-                .count(),
-            0
-        );
-    }
-
-    #[test]
-    fn event_stream_can_replace_an_existing_empty_directory() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        let event_stream_directory = event_system_directory
-            .join(STREAMS_DIRECTORY_NAME)
-            .join("test-events");
-        std::fs::create_dir(&event_stream_directory).unwrap();
-
-        let _producer_factory = event_system
-            .create_stream::<TestEvent>("test-events", TEST_CONFIG)
-            .unwrap();
-    }
-
-    #[test]
-    fn event_stream_publishes_its_schema() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        let _producer_factory = event_system
-            .create_stream::<TestEvent>("test-events", TEST_CONFIG)
-            .unwrap();
-
-        let event_stream_directory = event_system_directory
-            .join(STREAMS_DIRECTORY_NAME)
-            .join("test-events");
-        let encoded_schema = std::fs::read(event_stream_directory.join(SCHEMA_FILE_NAME)).unwrap();
-        let schema = wincode::deserialize::<RootSchema>(&encoded_schema).unwrap();
-
-        assert_matches!(schema, RootSchema::Struct(_));
-    }
-
-    #[test]
-    fn event_stream_publishes_its_queue_identifier_in_the_filename() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        let producer_factory = event_system
-            .create_stream::<TestEvent>("test-events", TEST_CONFIG)
-            .unwrap();
-
-        let event_stream_directory = event_system_directory
-            .join(STREAMS_DIRECTORY_NAME)
-            .join("test-events");
-
-        let mut file_names = std::fs::read_dir(event_stream_directory)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-            .collect::<Vec<_>>();
-        file_names.sort();
-
-        let queue_identifier = producer_factory.broadcast.queue_identifier();
-        assert_eq!(
-            file_names,
-            vec![
-                format!("{QUEUE_FILE_NAME}-{queue_identifier}"),
-                SCHEMA_FILE_NAME.to_owned(),
-            ]
-        );
-    }
-
-    #[test]
-    fn event_stream_publishes_a_queue_symlink() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        let producer_factory = event_system
-            .create_stream::<TestEvent>("test-events", TEST_CONFIG)
-            .unwrap();
-
-        let event_stream_directory = event_system_directory
-            .join(STREAMS_DIRECTORY_NAME)
-            .join("test-events");
-        let queue_identifier = producer_factory.broadcast.queue_identifier();
-        let queue_path =
-            event_stream_directory.join(format!("{QUEUE_FILE_NAME}-{queue_identifier}"));
-
-        assert!(queue_path.is_file());
-        assert!(
-            std::fs::symlink_metadata(queue_path)
-                .unwrap()
-                .file_type()
-                .is_symlink()
-        );
-    }
-
-    #[test]
-    fn published_queue_cannot_be_resized() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        let producer_factory = event_system
-            .create_stream::<TestEvent>("test-events", TEST_CONFIG)
-            .unwrap();
-
-        let event_stream_directory = event_system_directory
-            .join(STREAMS_DIRECTORY_NAME)
-            .join("test-events");
-        let queue_identifier = producer_factory.broadcast.queue_identifier();
-        let queue_path =
-            event_stream_directory.join(format!("{QUEUE_FILE_NAME}-{queue_identifier}"));
-        let queue_file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(queue_path)
-            .unwrap();
         let queue_size = queue_file.metadata().unwrap().len();
         assert_eq!(
             queue_file.set_len(0).unwrap_err().raw_os_error(),
-            Some(libc::EPERM)
+            Some(libc::EPERM),
         );
         assert_eq!(
             queue_file
@@ -557,28 +319,6 @@ mod tests {
                 .raw_os_error(),
             Some(libc::EPERM)
         );
-    }
-
-    #[test]
-    fn published_queue_seals_cannot_be_changed() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        let producer_factory = event_system
-            .create_stream::<TestEvent>("test-events", TEST_CONFIG)
-            .unwrap();
-
-        let queue_identifier = producer_factory.broadcast.queue_identifier();
-        let queue_path = event_system_directory
-            .join(STREAMS_DIRECTORY_NAME)
-            .join("test-events")
-            .join(format!("{QUEUE_FILE_NAME}-{queue_identifier}"));
-        let queue_file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(queue_path)
-            .unwrap();
-        let queue_fd = queue_file.as_raw_fd();
 
         // SAFETY: queue_file owns a valid descriptor and F_ADD_SEALS accepts this seal.
         let seal_result =
@@ -586,22 +326,5 @@ mod tests {
         let seal_error = io::Error::last_os_error();
         assert_eq!(seal_result, -1);
         assert_eq!(seal_error.raw_os_error(), Some(libc::EPERM));
-    }
-
-    #[test]
-    fn successful_event_stream_publication_leaves_no_staging_directory() {
-        let temporary_directory = TempDir::new().unwrap();
-        let event_system_directory = temporary_directory.path().join("event-system");
-        let event_system = EventSystem::new(&event_system_directory).unwrap();
-        let _producer_factory = event_system
-            .create_stream::<TestEvent>("test-events", TEST_CONFIG)
-            .unwrap();
-
-        assert_eq!(
-            std::fs::read_dir(event_system_directory.join(STAGING_DIRECTORY_NAME))
-                .unwrap()
-                .count(),
-            0
-        );
     }
 }

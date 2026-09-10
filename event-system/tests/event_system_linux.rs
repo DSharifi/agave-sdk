@@ -18,25 +18,46 @@ const TEST_CONFIG: StreamConfig = StreamConfig {
     consumer_slots: 1,
 };
 
+struct TestContext {
+    event_system: EventSystem,
+    _directory: TempDir,
+}
+
+impl TestContext {
+    fn new_event_system() -> Self {
+        let directory = TempDir::new().unwrap();
+        let event_system = EventSystem::new(directory.path().join("event-system")).unwrap();
+
+        Self {
+            event_system,
+            _directory: directory,
+        }
+    }
+}
+
 #[test]
 fn create_event_system_fails_when_path_is_a_file() {
-    let temporary_directory = TempDir::new().unwrap();
-    let event_system_directory = temporary_directory.path().join("event-system");
-    let contents = b"existing file contents";
-    std::fs::write(&event_system_directory, contents).unwrap();
+    const EXISTING_CONTENTS: &[u8] = b"existing file contents are preserved";
+
+    let event_system_directory = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(&event_system_directory, EXISTING_CONTENTS).unwrap();
 
     assert_matches!(EventSystem::new(&event_system_directory), Err(_));
-    assert_eq!(std::fs::read(&event_system_directory).unwrap(), contents);
+    assert_eq!(
+        std::fs::read(&event_system_directory).unwrap(),
+        EXISTING_CONTENTS
+    );
 }
 
 #[test]
 fn create_event_system_fails_when_directory_is_reused() {
-    let temporary_directory = TempDir::new().unwrap();
-    let event_system_directory = temporary_directory.path().join("event-system");
+    let directory = TempDir::new().unwrap();
+    let path = directory.path();
 
-    let _event_system = EventSystem::new(&event_system_directory).unwrap();
+    let _event_system = EventSystem::new(path).unwrap();
 
-    assert!(EventSystem::new(event_system_directory).is_err());
+    let event_system_with_reused_path_result = EventSystem::new(path);
+    assert_matches!(event_system_with_reused_path_result, Err(_));
 }
 
 #[rstest]
@@ -50,47 +71,43 @@ fn create_event_system_fails_when_directory_is_reused() {
 #[case::double_trailing_slash("trailing//")]
 #[case::trailing_dot("trailing/.")]
 fn create_stream_rejects_invalid_stream_names(#[case] invalid_name: &str) {
-    let temporary_directory = TempDir::new().unwrap();
-    let event_system_directory = temporary_directory.path().join("event-system");
-    let event_system = EventSystem::new(&event_system_directory).unwrap();
+    let test_context = TestContext::new_event_system();
 
     assert_matches!(
-        event_system.create_stream::<TestEvent>(invalid_name, TEST_CONFIG),
+        test_context.event_system.create_stream::<TestEvent>(invalid_name, TEST_CONFIG),
         Err(CreateStreamError::InvalidStreamName(name)) if name == invalid_name
     );
 }
 
 #[test]
-fn create_stream_rejects_invalid_config() {
-    let temporary_directory = TempDir::new().unwrap();
-    let event_system_directory = temporary_directory.path().join("event-system");
-    let event_system = EventSystem::new(&event_system_directory).unwrap();
+fn create_stream_reserves_names_only_after_success() {
+    let test_context = TestContext::new_event_system();
+    const REUSED_STREAM_NAME: &str = "reused-stream-name";
+
     let invalid_config = StreamConfig {
         capacity: 0,
         ..TEST_CONFIG
     };
 
     assert_matches!(
-        event_system.create_stream::<TestEvent>("test-events", invalid_config),
+        test_context
+            .event_system
+            .create_stream::<TestEvent>(REUSED_STREAM_NAME, invalid_config),
         Err(CreateStreamError::Queue(_))
     );
-}
+    let _producer_factory = test_context
+        .event_system
+        .create_stream::<TestEvent>(REUSED_STREAM_NAME, TEST_CONFIG)
+        .expect("test-events is unused stream name as it failed above");
 
-#[test]
-fn create_stream_rejects_duplicate_stream_names() {
-    let temporary_directory = TempDir::new().unwrap();
-    let event_system_directory = temporary_directory.path().join("event-system");
-    let event_system = EventSystem::new(&event_system_directory).unwrap();
-    let _producer_factory = event_system
-        .create_stream::<TestEvent>("test-events", TEST_CONFIG)
-        .unwrap();
     assert_matches!(
-        event_system.create_stream::<TestEvent>("test-events", TEST_CONFIG),
+        test_context.event_system.create_stream::<TestEvent>(REUSED_STREAM_NAME, TEST_CONFIG),
         Err(CreateStreamError::FileSystem(error))
             if matches!(
                 error.kind(),
                 // Linux permits EEXIST or ENOTEMPTY for a nonempty destination.
                 ErrorKind::AlreadyExists | ErrorKind::DirectoryNotEmpty
-            )
+            ),
+            "creation of the same stream name must now fail, since it succeeded above."
     );
 }
