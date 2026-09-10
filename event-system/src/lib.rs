@@ -10,8 +10,6 @@
 #[cfg(test)]
 extern crate self as agave_event_system;
 
-#[cfg(not(target_os = "linux"))]
-pub use crate::producer::Producer;
 pub use {
     crate::{
         event_system::{
@@ -27,6 +25,7 @@ use {
     wincode_dynamic::SchemaDynamic,
 };
 
+pub mod producer;
 #[doc(hidden)]
 pub mod __private {
     pub use {wincode, wincode_dynamic};
@@ -40,8 +39,6 @@ pub mod __private {
 #[cfg_attr(not(target_os = "linux"), path = "backend/stub.rs")]
 mod backend;
 mod event_system;
-#[cfg(not(target_os = "linux"))]
-mod producer;
 mod producer_factory;
 mod queue_cell;
 

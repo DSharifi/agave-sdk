@@ -138,3 +138,29 @@ fn stream_can_be_recreated_after_dropping_all_handles() {
         "all factory handles are dropped, recycling the stream name to be reused."
     );
 }
+
+#[rstest]
+fn producer_creation_respects_slot_limit(#[values(1, 2, 4)] producer_slots: usize) {
+    let test_context = TestContext::new_event_system();
+    let stream_config = StreamConfig {
+        producer_slots,
+        ..TEST_CONFIG
+    };
+
+    let producer_factory: ProducerFactory<TestEvent> = test_context
+        .event_system
+        .create_stream("test-stream", stream_config)
+        .unwrap();
+
+    for _ in 0..producer_slots {
+        producer_factory
+            .try_create_producer()
+            .expect("producer slot is available");
+    }
+
+    assert_matches!(
+        producer_factory.try_create_producer(),
+        None,
+        "producer slots are exhausted"
+    );
+}
