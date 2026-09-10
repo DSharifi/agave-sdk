@@ -10,12 +10,13 @@
 #[cfg(test)]
 extern crate self as agave_event_system;
 
+#[cfg(not(target_os = "linux"))]
+pub use crate::producer::Producer;
 pub use {
     crate::{
         event_system::{
             CreateEventSystemError, CreateStreamError, EventQueueError, EventSystem, StreamConfig,
         },
-        producer::Producer,
         producer_factory::ProducerFactory,
     },
     agave_event_system_derive::event,
@@ -39,6 +40,7 @@ pub mod __private {
 #[cfg_attr(not(target_os = "linux"), path = "backend/stub.rs")]
 mod backend;
 mod event_system;
+#[cfg(not(target_os = "linux"))]
 mod producer;
 mod producer_factory;
 mod queue_cell;
