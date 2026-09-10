@@ -4,12 +4,19 @@
 //! On all other targets, the public API is available but all operations are
 //! no-ops.
 
+// This is needed to use the `#[event]` macro in order to resolve the [`Event`] trait.
+// The reason is that the macro expands to use [`agave_event_system::Event`],
+// but in the self crate it is referred to as [`crate::Event`].
+#[cfg(test)]
+extern crate self as agave_event_system;
+
+#[cfg(not(target_os = "linux"))]
+pub use crate::producer::Producer;
 pub use {
     crate::{
         event_system::{
             CreateEventSystemError, CreateStreamError, EventQueueError, EventSystem, StreamConfig,
         },
-        producer::Producer,
         producer_factory::ProducerFactory,
     },
     agave_event_system_derive::event,
@@ -29,9 +36,11 @@ pub mod __private {
     }
 }
 
-#[path = "backend/stub.rs"]
+#[cfg_attr(target_os = "linux", path = "backend/linux.rs")]
+#[cfg_attr(not(target_os = "linux"), path = "backend/stub.rs")]
 mod backend;
 mod event_system;
+#[cfg(not(target_os = "linux"))]
 mod producer;
 mod producer_factory;
 mod queue_cell;

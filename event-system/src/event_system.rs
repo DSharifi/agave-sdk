@@ -1,5 +1,8 @@
 use {
-    crate::{Event, ProducerFactory, backend},
+    crate::{
+        Event, ProducerFactory,
+        backend::{self},
+    },
     std::path::Path,
     thiserror::Error,
 };
@@ -11,15 +14,15 @@ pub struct EventSystem {
 }
 
 impl EventSystem {
-    /// Creates an event system at `event_system_directory`.
+    /// Creates an event system directory in the given path, `event_system_directory`.
     ///
-    /// The directory must not already exist and relative paths are
-    /// resolved when this method is called.
-    pub fn create(
-        event_system_directory: impl AsRef<Path>,
-    ) -> Result<Self, CreateEventSystemError> {
+    /// ### Note:
+    /// - If the directory path already exists, it must be empty.
+    /// - This functions creates the given directory and any missing parents.
+    /// - The given path is canonicalized.
+    pub fn new(event_system_directory: impl AsRef<Path>) -> Result<Self, CreateEventSystemError> {
         Ok(Self {
-            backend: backend::EventSystem::create(event_system_directory)?,
+            backend: backend::EventSystem::new(event_system_directory)?,
         })
     }
 
@@ -72,4 +75,6 @@ pub enum CreateStreamError {
     FileSystem(#[from] std::io::Error),
     #[error("failed to create the event-stream queue")]
     Queue(#[source] EventQueueError),
+    #[error("failed to produce a random number for the queue identifier")]
+    OsRngFailure(std::io::Error),
 }
