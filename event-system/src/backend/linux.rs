@@ -109,20 +109,24 @@ impl EventSystem {
         let queue_identifier = getrandom::u64()
             .map_err(io::Error::from)
             .map_err(CreateStreamError::OsRngFailure)?;
-        let producer_factory = create_queue(stream_config, queue_identifier)?;
+        let (broadcast, queue_file) = create_sealed_queue::<E>(stream_config, queue_identifier)?;
 
         let queue_file_name = format!("{QUEUE_FILE_NAME}-{queue_identifier}");
         let queue_file_path = temporary_event_stream_directory
             .path()
             .join(queue_file_name);
         let process_id = std::process::id();
-        let queue_fd = producer_factory.queue_file.as_raw_fd();
+        let queue_fd = queue_file.as_raw_fd();
         let proc_fd_path = format!("/proc/{process_id}/fd/{queue_fd}");
         symlink(proc_fd_path, queue_file_path)?;
 
         temporary_event_stream_directory.publish(&event_stream_directory)?;
+        let stream_guard = StreamGuard {
+            event_stream_directory: event_stream_directory.into(),
+            _queue_file: queue_file,
+        };
 
-        Ok(producer_factory)
+        Ok(ProducerFactory::new(broadcast, stream_guard))
     }
 }
 
@@ -134,11 +138,12 @@ fn is_invalid_event_stream_name(stream_name: &str) -> bool {
     stream_name.is_empty() || is_current_or_parent_directory || contains_forbidden_characters
 }
 
-/// Creates and seals a queue, keeping its backing file alive in the returned factory.
-fn create_queue<E: Event>(
+/// Creates a queue backed by a sealed file.
+/// Returns both the [`Broadcast`] and its backing [`File`].
+fn create_sealed_queue<E: Event>(
     stream_config: StreamConfig,
     queue_identifier: u64,
-) -> Result<ProducerFactory<E>, CreateStreamError> {
+) -> Result<(Broadcast<E::QueueCell>, File), CreateStreamError> {
     let broadcast_config = BroadcastConfig {
         capacity: stream_config.capacity,
         producer_slots: stream_config.producer_slots,
@@ -179,19 +184,19 @@ fn create_queue<E: Event>(
     let seal_result = unsafe { libc::fcntl(queue_fd, libc::F_ADD_SEALS, REQUIRED_SEALS) };
     check_libc_result(seal_result)?;
 
-    Ok(ProducerFactory::new(broadcast, Arc::new(queue_file)))
+    Ok((broadcast, queue_file))
 }
 
 pub(crate) struct ProducerFactory<E: Event> {
-    pub(crate) broadcast: Broadcast<E::QueueCell>,
-    pub(crate) queue_file: Arc<File>,
+    broadcast: Broadcast<E::QueueCell>,
+    stream_guard: Arc<StreamGuard>,
 }
 
 impl<E: Event> ProducerFactory<E> {
-    fn new(broadcast: Broadcast<E::QueueCell>, queue_file: Arc<File>) -> Self {
+    fn new(broadcast: Broadcast<E::QueueCell>, stream_guard: StreamGuard) -> Self {
         Self {
             broadcast,
-            queue_file,
+            stream_guard: Arc::new(stream_guard),
         }
     }
 }
@@ -200,7 +205,7 @@ impl<E: Event> Clone for ProducerFactory<E> {
     fn clone(&self) -> Self {
         Self {
             broadcast: self.broadcast.clone(),
-            queue_file: Arc::clone(&self.queue_file),
+            stream_guard: self.stream_guard.clone(),
         }
     }
 }
@@ -211,6 +216,19 @@ impl<E: Event> std::fmt::Debug for ProducerFactory<E> {
             .debug_struct("ProducerFactory")
             .field("broadcast", &self.broadcast)
             .finish_non_exhaustive()
+    }
+}
+
+/// Keeps a stream's backing file alive and removes its directory on drop.
+struct StreamGuard {
+    event_stream_directory: Box<Path>,
+    // keeps the anonymous file alive
+    _queue_file: File,
+}
+
+impl Drop for StreamGuard {
+    fn drop(&mut self) {
+        let _ = remove_dir_all(&self.event_stream_directory);
     }
 }
 
@@ -254,7 +272,7 @@ impl Drop for StagingDirectory {
 #[cfg(test)]
 mod tests {
     use {
-        super::{REQUIRED_SEALS, StagingDirectory, create_queue},
+        super::{REQUIRED_SEALS, StagingDirectory, create_sealed_queue},
         crate::{StreamConfig, event},
         std::{io, os::fd::AsRawFd},
         tempfile::TempDir,
@@ -299,8 +317,7 @@ mod tests {
 
     #[test]
     fn queue_file_is_sealed_against_resizing_and_additional_seals() {
-        let producer_factory = create_queue::<TestEvent>(TEST_CONFIG, 0).unwrap();
-        let queue_file = &producer_factory.queue_file;
+        let (_broadcast, queue_file) = create_sealed_queue::<TestEvent>(TEST_CONFIG, 0).unwrap();
         let queue_fd = queue_file.as_raw_fd();
         // SAFETY: queue_file owns a valid descriptor and F_GET_SEALS takes no extra argument.
         let seals = unsafe { libc::fcntl(queue_fd, libc::F_GET_SEALS) };

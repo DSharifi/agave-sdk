@@ -1,7 +1,7 @@
 #![cfg(target_os = "linux")]
 
 use {
-    agave_event_system::{CreateStreamError, EventSystem, StreamConfig, event},
+    agave_event_system::{CreateStreamError, EventSystem, ProducerFactory, StreamConfig, event},
     rstest::rstest,
     std::{assert_matches, io::ErrorKind},
     tempfile::TempDir,
@@ -109,5 +109,32 @@ fn create_stream_reserves_names_only_after_success() {
                 ErrorKind::AlreadyExists | ErrorKind::DirectoryNotEmpty
             ),
             "creation of the same stream name must now fail, since it succeeded above."
+    );
+}
+
+#[test]
+fn stream_can_be_recreated_after_dropping_all_handles() {
+    const REUSED_STREAM_NAME: &str = "reused-stream-name";
+    let directory = TempDir::new().unwrap();
+    let event_system = EventSystem::new(directory.path()).unwrap();
+
+    let factory_1 = event_system
+        .create_stream::<TestEvent>(REUSED_STREAM_NAME, TEST_CONFIG)
+        .unwrap();
+    let factory_2 = factory_1.clone();
+
+    drop(factory_1);
+
+    assert_matches!(
+        event_system.create_stream::<TestEvent>(REUSED_STREAM_NAME, TEST_CONFIG),
+        Err(_),
+        "factory_2 is still alive preventing re-creation"
+    );
+
+    drop(factory_2);
+    assert_matches!(
+        event_system.create_stream::<TestEvent>(REUSED_STREAM_NAME, TEST_CONFIG),
+        Ok(ProducerFactory { .. }),
+        "all factory handles are dropped, recycling the stream name to be reused."
     );
 }
