@@ -4,11 +4,17 @@ use {
         event_system::{CreateEventSystemError, CreateStreamError, StreamConfig},
         producer::EmitEventError,
     },
-    std::{marker::PhantomData, path::Path},
+    std::{fmt::Debug, marker::PhantomData, path::Path},
 };
 
 pub(crate) struct Producer<E> {
     _data: PhantomData<E>,
+}
+
+impl<E> Debug for Producer<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Producer").finish()
+    }
 }
 
 impl<E> Producer<E> {

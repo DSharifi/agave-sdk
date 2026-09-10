@@ -1,3 +1,4 @@
+pub(crate) use producer::Producer;
 use {
     crate::{
         Event,
@@ -6,7 +7,7 @@ use {
             StreamConfig,
         },
     },
-    shaq::broadcast::{Broadcast, BroadcastConfig},
+    shaq::broadcast::{Broadcast, BroadcastConfig, ProducerId},
     std::{
         fs::{File, OpenOptions, create_dir, create_dir_all, remove_dir_all},
         io::{self, Write},
@@ -18,6 +19,9 @@ use {
         sync::Arc,
     },
 };
+
+#[path = "linux/producer.rs"]
+mod producer;
 
 // Layout of the event-system directory:
 //
@@ -193,6 +197,23 @@ pub(crate) struct ProducerFactory<E: Event> {
 }
 
 impl<E: Event> ProducerFactory<E> {
+    pub(crate) fn try_create_producer(&self) -> Option<Producer<E>> {
+        let stream_guard = self.stream_guard.clone();
+        // SAFETY: gettid id is always safe to call
+        let thread_id: i32 = unsafe { libc::gettid() };
+
+        let thread_id = u64::try_from(thread_id).expect(
+            "gettid man page: `call is always sucessful`, meaning a positive i32 is returned",
+        );
+
+        let producer_id = ProducerId::new(thread_id);
+        let broadcast_sender = self.broadcast.producer(producer_id).ok()?;
+
+        let producer = Producer::new(broadcast_sender, stream_guard);
+
+        Some(producer)
+    }
+
     fn new(broadcast: Broadcast<E::QueueCell>, stream_guard: StreamGuard) -> Self {
         Self {
             broadcast,
@@ -220,6 +241,7 @@ impl<E: Event> std::fmt::Debug for ProducerFactory<E> {
 }
 
 /// Keeps a stream's backing file alive and removes its directory on drop.
+#[derive(Debug)]
 struct StreamGuard {
     event_stream_directory: Box<Path>,
     // keeps the anonymous file alive

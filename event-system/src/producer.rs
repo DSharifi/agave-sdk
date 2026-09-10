@@ -1,6 +1,6 @@
 use {
     crate::{Event, backend},
-    std::{marker::PhantomData, rc::Rc},
+    std::{fmt::Debug, marker::PhantomData, rc::Rc},
 };
 
 /// A producer which can emit events of a specific type.
@@ -26,4 +26,16 @@ impl<E: Event> Producer<E> {
     }
 }
 
-pub enum EmitEventError {}
+impl<E: Event> Debug for Producer<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self.inner, f)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum EmitEventError {
+    #[error("Failed to serialize the event")]
+    Serialization(wincode::WriteError),
+    #[error("Failed to send the event. Back-pressured by event subscribers.")]
+    FailedToSend,
+}
