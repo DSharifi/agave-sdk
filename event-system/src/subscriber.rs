@@ -5,8 +5,9 @@ use {
     wincode_dynamic::{Decoder, Fields, RootSchema},
 };
 
-/// A [`StreamExplorer`] listens to a given directory for event streams that are published
-/// by [`Producer`](crate::producer::Producer)s.
+/// A [`StreamExplorer`] listens to a given directory for event streams that are created
+/// by [`EventSystem::create_stream`](crate::EventSystem::create_stream) in the same
+/// directory.
 ///
 /// To subscribe to a stream, simply use the [`StreamExplorer::available_streams] API
 /// which yields an iterator over streams that can be subscribed to.
