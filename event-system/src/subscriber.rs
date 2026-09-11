@@ -77,7 +77,11 @@ where
     pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
         let payload = self.backend.try_recv()?;
 
-        wincode::deserialize(&payload[..]).map_err(|_| TryRecvError::InvalidEncoding)
+        wincode::deserialize(&payload[..]).map_err(|_| {
+            // this error should never happen since the schema was validated
+            // when subscribing to the stream in `try_connect_typed`
+            TryRecvError::InvalidEncoding
+        })
     }
 }
 
