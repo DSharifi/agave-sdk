@@ -2,7 +2,7 @@ use {
     crate::backend,
     std::{marker::PhantomData, path::PathBuf},
     wincode::{Deserialize, ReadResult},
-    wincode_dynamic::{Decoder, Field, RootSchema},
+    wincode_dynamic::{Decoder, Fields, RootSchema},
 };
 
 /// A [`StreamExplorer`] listens to a given directory for event streams that are published
@@ -123,13 +123,7 @@ impl AvailableStream<'_> {
         let expected_schema = T::schema();
         let actual_schema = self.0.stream_schema();
 
-        // TODO: PartialEq is not implemented for RootSchema. Zach will ad it.
-        //
-        // let streams_schema_matches_callers_type = expected_schema != *actual_schema;
-        //
-        let streams_schema_matches_callers_type = true;
-
-        if streams_schema_matches_callers_type {
+        if expected_schema != *actual_schema {
             return Err(TryConnectTypedError::SchemaMismatch {
                 expected: expected_schema,
                 actual: actual_schema.clone(),
@@ -176,15 +170,7 @@ pub struct DynamicStreamMessage<'a> {
 
 impl<'a> DynamicStreamMessage<'a> {
     /// Decodes the dynamic message into a [`DecodedMessage`]
-    pub fn decode<'de>(
-        &'de self,
-    ) -> ReadResult<
-        DecodedMessage<
-            'a,
-            impl Iterator<Item = ReadResult<Field<'a, 'de>>>,
-            impl Iterator<Item = ReadResult<Field<'a, 'de>>>,
-        >,
-    > {
+    pub fn decode<'de>(&'de self) -> ReadResult<DecodedMessage<'a, 'de>> {
         Ok(match &self.decoder {
             Decoder::Struct(schema_decoder) => DecodedMessage::Struct {
                 fields: schema_decoder.fields(self.payload.as_ref()),
@@ -208,8 +194,12 @@ impl<'a> DynamicStreamMessage<'a> {
 }
 
 /// A decoded dynamically typed message. Messages can either be an enum or a struct.
-/// TODO: need concrete type for field iterators to avoid generics. Zach is on it.
-pub enum DecodedMessage<'a, S, E> {
-    Struct { fields: S },
-    Enum { fields: E, variant_name: &'a str },
+pub enum DecodedMessage<'a, 'de> {
+    Struct {
+        fields: Fields<'a, 'de, &'de [u8]>,
+    },
+    Enum {
+        fields: Fields<'a, 'de, &'de [u8]>,
+        variant_name: &'a str,
+    },
 }
