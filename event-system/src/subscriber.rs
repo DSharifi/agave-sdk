@@ -26,7 +26,12 @@ impl StreamExplorer {
     }
 }
 
+/// Marker for dynamically reflecting over stream messages.
+/// See [`StreamSubscriber`] for details on subscriber modes.
 pub struct Dynamic;
+
+/// Marker for decoding stream messages into a statically typed `T`.
+/// See [`StreamSubscriber`] for details on subscriber modes.
 pub struct Typed<T> {
     _marker: PhantomData<T>,
 }
