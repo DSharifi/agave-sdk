@@ -22,7 +22,7 @@ impl StreamExplorer {
     ///
     /// A stream can be subscribed to with [`AvailableStream::try_connect_dynamic`] or
     /// [`AvailableStream::try_connect_typed`].
-    pub fn available_streams(&mut self) -> impl Iterator<Item = AvailableStream<'_>> + '_ {
+    pub fn available_streams(&self) -> impl Iterator<Item = AvailableStream> + '_ {
         self.0.available_streams().map(AvailableStream)
     }
 }
@@ -101,9 +101,9 @@ impl<T> StreamSubscriber<Typed<T>> {
 }
 
 /// A discovered stream that can be connected to.
-pub struct AvailableStream<'a>(backend::AvailableStream<'a>);
+pub struct AvailableStream(backend::AvailableStream);
 
-impl AvailableStream<'_> {
+impl AvailableStream {
     /// The name of the available stream.
     pub fn stream_name(&self) -> &str {
         self.0.stream_name()

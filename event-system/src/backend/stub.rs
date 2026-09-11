@@ -89,7 +89,7 @@ impl StreamExplorer {
 }
 
 impl StreamExplorer {
-    pub(crate) fn available_streams(&mut self) -> impl Iterator<Item = AvailableStream<'_>> + '_ {
+    pub(crate) fn available_streams(&self) -> impl Iterator<Item = AvailableStream> + '_ {
         std::iter::empty()
     }
 }
@@ -118,19 +118,19 @@ impl StreamSubscriber {
 }
 
 // 'a lifetime is there to match `linux` backend
-pub(crate) struct AvailableStream<'a> {
-    stream_name: &'a str,
-    type_name: &'a str,
+pub(crate) struct AvailableStream {
+    stream_name: String,
+    type_name: String,
     dummy_schema: RootSchema,
 }
 
-impl AvailableStream<'_> {
+impl AvailableStream {
     pub(crate) fn stream_name(&self) -> &str {
-        self.stream_name
+        &self.stream_name
     }
 
     pub(crate) fn type_name(&self) -> &str {
-        self.type_name
+        &self.type_name
     }
 
     pub(crate) fn stream_schema(&self) -> &RootSchema {
