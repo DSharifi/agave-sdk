@@ -3,8 +3,14 @@ use {
         Event,
         event_system::{CreateEventSystemError, CreateStreamError, StreamConfig},
         producer::EmitEventError,
+        subscriber::{TryConnectError, TryRecvError},
     },
-    std::{fmt::Debug, marker::PhantomData, path::Path},
+    std::{
+        fmt::Debug,
+        marker::PhantomData,
+        path::{Path, PathBuf},
+    },
+    wincode_dynamic::RootSchema,
 };
 
 pub(crate) struct Producer<E> {
@@ -71,5 +77,69 @@ impl<E: Event> Clone for ProducerFactory<E> {
 impl<E: Event> std::fmt::Debug for ProducerFactory<E> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.debug_struct("ProducerFactory").finish()
+    }
+}
+
+pub(crate) struct StreamExplorer;
+
+impl StreamExplorer {
+    pub(crate) fn new(_path: PathBuf) -> Self {
+        Self
+    }
+}
+
+impl StreamExplorer {
+    pub(crate) fn available_streams(&mut self) -> impl Iterator<Item = AvailableStream<'_>> + '_ {
+        std::iter::empty()
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct StreamSubscriber {
+    dummy_schema: RootSchema,
+}
+
+impl StreamSubscriber {
+    pub(crate) fn stream_name(&self) -> &str {
+        ""
+    }
+
+    pub(crate) fn type_name(&self) -> &str {
+        ""
+    }
+
+    pub(crate) fn try_recv(&mut self) -> Result<Box<[u8]>, TryRecvError> {
+        Err(TryRecvError::Empty)
+    }
+
+    pub(crate) fn schema(&self) -> &RootSchema {
+        &self.dummy_schema
+    }
+}
+
+// 'a lifetime is there to match `linux` backend
+pub(crate) struct AvailableStream<'a> {
+    stream_name: &'a str,
+    type_name: &'a str,
+    dummy_schema: RootSchema,
+}
+
+impl AvailableStream<'_> {
+    pub(crate) fn stream_name(&self) -> &str {
+        self.stream_name
+    }
+
+    pub(crate) fn type_name(&self) -> &str {
+        self.type_name
+    }
+
+    pub(crate) fn stream_schema(&self) -> &RootSchema {
+        &self.dummy_schema
+    }
+
+    pub(crate) fn try_connect(self) -> Result<StreamSubscriber, TryConnectError> {
+        Ok(StreamSubscriber {
+            dummy_schema: self.dummy_schema,
+        })
     }
 }
