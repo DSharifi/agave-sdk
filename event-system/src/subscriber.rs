@@ -44,10 +44,10 @@ pub struct Typed<T> {
 /// knows what T is at compile time.
 pub struct StreamSubscriber<Mode> {
     backend: backend::StreamSubscriber,
-    t: PhantomData<Mode>,
+    mode: PhantomData<Mode>,
 }
 
-impl<T> StreamSubscriber<T> {
+impl<Mode> StreamSubscriber<Mode> {
     /// The name of the stream the subscriber is listening on.
     pub fn stream_name(&self) -> &str {
         self.backend.stream_name()
@@ -70,7 +70,7 @@ impl StreamSubscriber<Dynamic> {
     fn new(backend: backend::StreamSubscriber) -> Self {
         Self {
             backend,
-            t: PhantomData,
+            mode: PhantomData,
         }
     }
 }
@@ -95,7 +95,7 @@ impl<T> StreamSubscriber<Typed<T>> {
     fn new(backend: backend::StreamSubscriber) -> Self {
         Self {
             backend,
-            t: PhantomData,
+            mode: PhantomData,
         }
     }
 }
