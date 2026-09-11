@@ -1,7 +1,8 @@
+pub use wincode::ReadError;
 use {
     crate::backend,
     std::{marker::PhantomData, path::PathBuf},
-    wincode::{Deserialize, ReadResult},
+    wincode::Deserialize,
     wincode_dynamic::{Decoder, Fields, RootSchema},
 };
 
@@ -56,15 +57,10 @@ impl<Mode> StreamSubscriber<Mode> {
     pub fn type_name(&self) -> &str {
         self.backend.type_name()
     }
-}
 
-impl StreamSubscriber<Dynamic> {
     /// Returns a message if there is any unseen message in the stream.
-    pub fn try_recv(&mut self) -> Result<DynamicStreamMessage<'_>, TryRecvError> {
-        let payload = self.backend.try_recv()?;
-        let schema = self.backend.schema();
-
-        Ok(DynamicStreamMessage::new(schema, payload))
+    pub fn try_recv(&mut self) -> Result<StreamMessage<'_, Mode>, TryRecvError> {
+        self.backend.try_recv().map(StreamMessage::new)
     }
 
     fn new(backend: backend::StreamSubscriber) -> Self {
@@ -75,28 +71,76 @@ impl StreamSubscriber<Dynamic> {
     }
 }
 
-impl<T> StreamSubscriber<Typed<T>>
+/// A message received from a stream with [`StreamSubscriber::try_recv`].
+pub struct StreamMessage<'a, Mode> {
+    backend: backend::StreamMessage<'a>,
+    mode: PhantomData<Mode>,
+}
+
+impl<'a, Mode> StreamMessage<'a, Mode> {
+    /// Metadata of the producer lane that this message was published on.
+    pub fn lane_metadata(&self) -> ProducerMetadata<'_> {
+        ProducerMetadata(self.backend.lane_metadata())
+    }
+
+    fn new(backend: backend::StreamMessage<'a>) -> Self {
+        Self {
+            backend,
+            mode: PhantomData,
+        }
+    }
+}
+
+impl<T> StreamMessage<'_, Typed<T>>
 where
     T: for<'de> Deserialize<'de, Dst = T>,
 {
-    /// Returns a message if there is any unseen message in the stream.
-    pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
-        let payload = self.backend.try_recv()?;
+    pub fn decode(&self) -> Result<T, ReadError> {
+        // An error should never happen here since the schema of the stream was
+        // validated against `T` when subscribing to the stream in
+        // [`AvailableStream::try_connect_typed`].
+        wincode::deserialize(self.backend.payload())
+    }
+}
 
-        wincode::deserialize(&payload[..]).map_err(|_| {
-            // this error should never happen since the schema was validated
-            // when subscribing to the stream in `try_connect_typed`
-            TryRecvError::InvalidEncoding
+impl<'a> StreamMessage<'a, Dynamic> {
+    /// Decodes the message into a [`DecodedMessage`], whose fields can be
+    /// reflected over.
+    pub fn decode<'de>(&'de self) -> Result<DecodedMessage<'a, 'de>, ReadError> {
+        Ok(match Decoder::new(self.backend.schema()) {
+            Decoder::Struct(schema_decoder) => DecodedMessage::Struct {
+                fields: schema_decoder.fields(self.backend.payload()),
+            },
+            Decoder::Enum(enum_decoder) => {
+                let variant_decoder = enum_decoder.decode_variant(self.backend.payload())?;
+                DecodedMessage::Enum {
+                    variant_name: variant_decoder.variant_name(),
+                    fields: variant_decoder.fields(),
+                }
+            }
         })
     }
 }
 
-impl<T> StreamSubscriber<Typed<T>> {
-    fn new(backend: backend::StreamSubscriber) -> Self {
-        Self {
-            backend,
-            mode: PhantomData,
-        }
+/// Metadata of the [`Producer`](crate::producer::Producer) lane that a [`StreamMessage`] was published on.
+#[derive(Clone, Copy, Debug)]
+pub struct ProducerMetadata<'a>(backend::ProducerMetadata<'a>);
+
+impl ProducerMetadata<'_> {
+    /// The lane of the producer that emitted this event.
+    pub fn lane(&self) -> usize {
+        self.0.lane()
+    }
+
+    /// The thread id of the producer that emitted the event.
+    pub fn thread_id(&self) -> u64 {
+        self.0.thread_id()
+    }
+
+    /// The number of events the producer could not publish on this lane because
+    /// subscribers did not consume them fast enough.
+    pub fn rejected_items(&self) -> u64 {
+        self.0.rejected_items()
     }
 }
 
@@ -153,8 +197,6 @@ impl AvailableStream {
 pub enum TryRecvError {
     #[error("the stream has no new message")]
     Empty,
-    #[error("the received message could not be deserialized")]
-    InvalidEncoding,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -171,37 +213,6 @@ pub enum TryConnectTypedError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum TryConnectError {}
-
-/// A dynamic message received on a dynamically typed stream [`StreamSubscriber<Dynamic>`].
-pub struct DynamicStreamMessage<'a> {
-    decoder: Decoder<'a>,
-    payload: Box<[u8]>,
-}
-
-impl<'a> DynamicStreamMessage<'a> {
-    /// Decodes the dynamic message into a [`DecodedMessage`]
-    pub fn decode<'de>(&'de self) -> ReadResult<DecodedMessage<'a, 'de>> {
-        Ok(match &self.decoder {
-            Decoder::Struct(schema_decoder) => DecodedMessage::Struct {
-                fields: schema_decoder.fields(self.payload.as_ref()),
-            },
-            Decoder::Enum(enum_decoder) => {
-                let variant_decoder = enum_decoder.decode_variant(self.payload.as_ref())?;
-                DecodedMessage::Enum {
-                    variant_name: variant_decoder.variant_name(),
-                    fields: variant_decoder.fields(),
-                }
-            }
-        })
-    }
-
-    fn new(schema: &'a RootSchema, payload: Box<[u8]>) -> Self {
-        Self {
-            decoder: Decoder::new(schema),
-            payload,
-        }
-    }
-}
 
 /// A decoded dynamically typed message. Messages can either be an enum or a struct.
 pub enum DecodedMessage<'a, 'de> {

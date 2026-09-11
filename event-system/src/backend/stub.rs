@@ -95,9 +95,7 @@ impl StreamExplorer {
 }
 
 #[derive(Debug)]
-pub(crate) struct StreamSubscriber {
-    dummy_schema: RootSchema,
-}
+pub(crate) struct StreamSubscriber;
 
 impl StreamSubscriber {
     pub(crate) fn stream_name(&self) -> &str {
@@ -108,12 +106,46 @@ impl StreamSubscriber {
         ""
     }
 
-    pub(crate) fn try_recv(&mut self) -> Result<Box<[u8]>, TryRecvError> {
+    pub(crate) fn try_recv(&mut self) -> Result<StreamMessage<'_>, TryRecvError> {
         Err(TryRecvError::Empty)
     }
+}
 
-    pub(crate) fn schema(&self) -> &RootSchema {
-        &self.dummy_schema
+pub(crate) struct StreamMessage<'a> {
+    schema: &'a RootSchema,
+    payload: &'a [u8],
+}
+
+impl<'a> StreamMessage<'a> {
+    pub(crate) fn schema(&self) -> &'a RootSchema {
+        self.schema
+    }
+
+    pub(crate) fn payload(&self) -> &[u8] {
+        self.payload
+    }
+
+    pub(crate) fn lane_metadata(&self) -> ProducerMetadata<'_> {
+        ProducerMetadata(PhantomData)
+    }
+}
+
+// 'a lifetime is there to match the `linux` backend, where the metadata is
+// borrowed from the queue's shared memory.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ProducerMetadata<'a>(PhantomData<&'a ()>);
+
+impl ProducerMetadata<'_> {
+    pub(crate) fn lane(&self) -> usize {
+        0
+    }
+
+    pub(crate) fn thread_id(&self) -> u64 {
+        0
+    }
+
+    pub(crate) fn rejected_items(&self) -> u64 {
+        0
     }
 }
 
@@ -138,8 +170,6 @@ impl AvailableStream {
     }
 
     pub(crate) fn try_connect(self) -> Result<StreamSubscriber, TryConnectError> {
-        Ok(StreamSubscriber {
-            dummy_schema: self.dummy_schema,
-        })
+        Ok(StreamSubscriber)
     }
 }
