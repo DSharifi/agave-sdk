@@ -245,7 +245,10 @@ pub struct SchemaMismatch {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum TryConnectError {}
+pub enum TryConnectError {
+    #[error("the stream has no available subscriber slots")]
+    SubscriberSlotsExhausted,
+}
 
 /// A decoded dynamically typed message. Messages can either be an enum or a struct.
 #[derive(Debug)]
