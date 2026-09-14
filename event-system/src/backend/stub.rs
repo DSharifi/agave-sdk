@@ -24,7 +24,7 @@ impl<E> Debug for Producer<E> {
 }
 
 impl<E> Producer<E> {
-    pub(crate) fn emit_event(&mut self, _event: &E) -> Result<(), EmitEventError> {
+    pub(crate) fn emit_events_batched(&mut self, _events: &[E]) -> Result<(), EmitEventError> {
         Ok(())
     }
 }
