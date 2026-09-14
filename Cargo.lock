@@ -1692,9 +1692,9 @@ dependencies = [
 
 [[package]]
 name = "wincode-dynamic"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90aeebbaf013fb2b6cd62e6310b045f4ad18f74a29a340d0c0b2bd6fadf10bfd"
+checksum = "92f8b070d38f156868b25a49852c8e392fc02843eeb788f723aa58bf0264f140"
 dependencies = [
  "wincode",
  "wincode-dynamic-derive",
