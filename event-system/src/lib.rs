@@ -16,10 +16,12 @@ pub use {
             CreateEventSystemError, CreateStreamError, EventQueueError, EventSystem, StreamConfig,
         },
         producer_factory::ProducerFactory,
+        queue_cell::event_queue_cell_size,
     },
     agave_event_system_derive::event,
-    queue_cell::event_queue_cell_size,
 };
+// wincode and wincode-dynamic are part of public API.
+pub use {wincode, wincode_dynamic};
 use {
     wincode::{SchemaWrite, config::DefaultConfig},
     wincode_dynamic::SchemaDynamic,
@@ -28,7 +30,6 @@ use {
 pub mod producer;
 #[doc(hidden)]
 pub mod __private {
-    pub use {wincode, wincode_dynamic};
 
     pub mod event_macro {
         pub use {wincode::*, wincode_dynamic::*};

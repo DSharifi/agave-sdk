@@ -59,14 +59,10 @@ fn event_impl(
     };
 
     Ok(quote! {
-        #[doc(hidden)]
-        #[allow(unused_imports)]
-        use #event_system_crate::__private::*;
-
         #[derive(
-            #event_system_crate::__private::wincode::SchemaRead,
-            #event_system_crate::__private::wincode::SchemaWrite,
-            #event_system_crate::__private::wincode_dynamic::SchemaDynamic,
+            #event_system_crate::wincode::SchemaRead,
+            #event_system_crate::wincode::SchemaWrite,
+            #event_system_crate::wincode_dynamic::SchemaDynamic,
         )]
         #[wincode(crate = #event_macro_path)]
         #input
@@ -75,7 +71,7 @@ fn event_impl(
         // it has no padding, and AsMut exposes its complete representation.
         unsafe impl #event_system_crate::Event for #ident {
             type QueueCell = [u8; #event_system_crate::event_queue_cell_size(
-                <Self as #event_system_crate::__private::wincode_dynamic::SchemaDynamic>::SERIALIZED_SIZE,
+                <Self as #event_system_crate::wincode_dynamic::SchemaDynamic>::SERIALIZED_SIZE,
                 #max_serialized_size,
             )];
         }
