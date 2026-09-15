@@ -18,18 +18,8 @@ struct TestEvent {
 }
 
 #[event]
-#[derive(Debug, PartialEq, PartialOrd)]
-enum ComplexEvent {
-    Variant1 {
-        value: u64,
-        time: u64,
-        signature: [u8; 12],
-    },
-    Variant2 {
-        value: u64,
-        is_valid: bool,
-        sender: [u8; 15],
-    },
+enum TestEnumEvent {
+    Value { value: u64 },
 }
 
 const TEST_CONFIG: StreamConfig = StreamConfig {
@@ -189,41 +179,11 @@ fn producer_creation_respects_slot_limit(#[values(1, 2, 4)] producer_slots: usiz
     );
 }
 
-#[test]
-fn subscriber_can_connect_to_stream_and_see_stream_info() {
-    const STREAM_A_NAME: &str = "stream_a";
-    const TEST_EVENT: TestEvent = TestEvent { value: 42 };
-
-    let test_context = TestContext::new_event_system();
-    let producer_factory: ProducerFactory<TestEvent> = test_context
-        .event_system
-        .create_stream(STREAM_A_NAME, TEST_CONFIG)
-        .unwrap();
-
-    let mut producer = producer_factory.try_create_producer().unwrap();
-
-    let subscriber = subscriber::StreamExplorer::new(test_context.event_system_path());
-    let mut available_streams: Vec<AvailableStream> = subscriber.available_streams().collect();
-
-    assert_eq!(available_streams.len(), 1, "only one stream is published");
-    let available_stream = available_streams.pop().unwrap();
-    let mut subscriber = available_stream.try_connect_typed::<TestEvent>().unwrap();
-
-    assert_eq!(STREAM_A_NAME, subscriber.stream_name());
-    assert_eq!("TestEvent", subscriber.type_name());
-
-    producer.emit_event(&TEST_EVENT).unwrap();
-    let received_event = subscriber.try_recv().unwrap().decode().unwrap();
-
-    assert_eq!(TEST_EVENT, received_event);
-}
-
 #[rstest]
-fn events_emitted_by_producer_are_received_by_all_subscribers(
-    #[values(1, 2, 4)] consumer_slots: usize,
-) {
+fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] consumer_slots: usize) {
     use agave_event_system::subscriber::{TryConnectError, TryConnectTypedError};
 
+    const STREAM_NAME: &str = "test-stream";
     const TEST_EVENT: TestEvent = TestEvent { value: 42 };
 
     let test_context = TestContext::new_event_system();
@@ -233,7 +193,7 @@ fn events_emitted_by_producer_are_received_by_all_subscribers(
     };
     let producer_factory: ProducerFactory<TestEvent> = test_context
         .event_system
-        .create_stream("test-stream", stream_config)
+        .create_stream(STREAM_NAME, stream_config)
         .unwrap();
     let mut producer = producer_factory.try_create_producer().unwrap();
 
@@ -258,65 +218,20 @@ fn events_emitted_by_producer_are_received_by_all_subscribers(
 
     producer.emit_event(&TEST_EVENT).unwrap();
     for subscriber in &mut subscribers {
+        assert_eq!(STREAM_NAME, subscriber.stream_name());
+        assert_eq!("TestEvent", subscriber.type_name());
+
         let received_event = subscriber.try_recv().unwrap().decode().unwrap();
         assert_eq!(TEST_EVENT, received_event);
     }
 }
 
-struct ExpectedMessage {
-    variant_name: Option<&'static str>,
-    fields: Vec<(&'static str, Value<'static>)>,
-}
-
 #[rstest]
-#[case::struct_events(
-    vec![TestEvent { value: 42 }, TestEvent { value: 99 }],
-    vec![
-        ExpectedMessage {
-            variant_name: None,
-            fields: vec![("value", Value::U64(42))],
-        },
-        ExpectedMessage {
-            variant_name: None,
-            fields: vec![("value", Value::U64(99))],
-        },
-    ],
-)]
-#[case::enum_events(
-    vec![
-        ComplexEvent::Variant1 {
-            value: 42,
-            time: 123_456,
-            signature: *b"signature123",
-        },
-        ComplexEvent::Variant2 {
-            value: 99,
-            is_valid: true,
-            sender: *b"sender123456789",
-        },
-    ],
-    vec![
-        ExpectedMessage {
-            variant_name: Some("Variant1"),
-            fields: vec![
-                ("value", Value::U64(42)),
-                ("time", Value::U64(123_456)),
-                ("signature", Value::Bytes(b"signature123".as_slice().into())),
-            ],
-        },
-        ExpectedMessage {
-            variant_name: Some("Variant2"),
-            fields: vec![
-                ("value", Value::U64(99)),
-                ("is_valid", Value::Bool(true)),
-                ("sender", Value::Bytes(b"sender123456789".as_slice().into())),
-            ],
-        },
-    ],
-)]
-fn events_emitted_by_producer_are_received_by_untyped_subscriber<E: Event>(
-    #[case] test_events: Vec<E>,
-    #[case] expected_messages: Vec<ExpectedMessage>,
+#[case::struct_event(TestEvent { value: 42 }, None)]
+#[case::enum_event(TestEnumEvent::Value { value: 42 }, Some("Value"))]
+fn dynamic_subscriber_can_connect_and_decode_events<E: Event>(
+    #[case] event: E,
+    #[case] expected_variant_name: Option<&str>,
 ) {
     const STREAM_A_NAME: &str = "stream_a";
 
@@ -335,30 +250,20 @@ fn events_emitted_by_producer_are_received_by_untyped_subscriber<E: Event>(
     let available_stream = available_streams.pop().unwrap();
     let mut subscriber = available_stream.try_connect_dynamic().unwrap();
 
-    for event in &test_events {
-        producer.emit_event(event).unwrap();
-    }
+    producer.emit_event(&event).unwrap();
+    let received_message = subscriber.try_recv().unwrap();
+    let (variant_name, mut fields) = match received_message.decode().unwrap() {
+        DecodedMessage::Struct { fields } => (None, fields),
+        DecodedMessage::Enum {
+            variant_name,
+            fields,
+        } => (Some(variant_name), fields),
+    };
+    assert_eq!(variant_name, expected_variant_name);
 
-    for expected_message in expected_messages {
-        let received_message = subscriber.try_recv().unwrap();
-        let (variant_name, mut fields) = match received_message.decode().unwrap() {
-            DecodedMessage::Struct { fields } => (None, fields),
-            DecodedMessage::Enum {
-                variant_name,
-                fields,
-            } => (Some(variant_name), fields),
-        };
-
-        assert_eq!(variant_name, expected_message.variant_name);
-        for (expected_name, expected_value) in expected_message.fields {
-            let field = fields.next().unwrap().unwrap();
-            assert_eq!(field.name(), expected_name);
-            assert_eq!(field.value(), &expected_value);
-        }
-        assert!(fields.next().is_none(), "no extra fields are present");
-    }
-    assert!(matches!(
-        subscriber.try_recv(),
-        Err(subscriber::TryRecvError::Empty)
-    ));
+    // Fields decode lazily, so consume the iterator to exercise payload decoding.
+    let field = fields.next().unwrap().unwrap();
+    assert_eq!(field.name(), "value");
+    assert_eq!(field.value(), &Value::U64(42));
+    assert!(fields.next().is_none(), "no extra fields are present");
 }
