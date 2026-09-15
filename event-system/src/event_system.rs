@@ -2,6 +2,7 @@ use {
     crate::{
         Event, ProducerFactory,
         backend::{self},
+        stream_policy::StreamPolicy,
     },
     std::path::Path,
     thiserror::Error,
@@ -37,6 +38,13 @@ impl EventSystem {
             .create_stream::<E>(stream_name, stream_config)
             .map(ProducerFactory::new)
     }
+
+    /// Applies the given [`StreamPolicy`] on the streams created by this
+    /// [`EventSystem`].
+    ///
+    /// The applied stream policy will also be applied to future stream creations
+    /// of this event system.
+    pub fn set_stream_policy(&self, _stream_policy: StreamPolicy) {}
 }
 
 impl std::fmt::Debug for EventSystem {

@@ -28,6 +28,7 @@ use {
 };
 
 pub mod producer;
+pub mod stream_policy;
 pub mod subscriber;
 
 #[doc(hidden)]
