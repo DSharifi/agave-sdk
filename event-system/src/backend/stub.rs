@@ -27,6 +27,10 @@ impl<E> Producer<E> {
     pub(crate) fn emit_event(&mut self, _event: &E) -> Result<(), EmitEventError> {
         Ok(())
     }
+
+    pub(crate) fn emit_events_batched(&mut self, _events: &[E]) -> Result<(), EmitEventError> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
