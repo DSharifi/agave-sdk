@@ -5,6 +5,7 @@ use {
             CreateEventSystemError, CreateStreamError, EventQueueError as PublicEventQueueError,
             StreamConfig,
         },
+        stream_name::StreamName,
     },
     shaq::broadcast::{Broadcast, BroadcastConfig, ProducerId},
     std::{
@@ -86,24 +87,19 @@ impl EventSystem {
     /// and returns its [`ProducerFactory`].
     pub(crate) fn create_stream<E: Event>(
         &self,
-        stream_name: &str,
+        stream_name: StreamName,
         stream_config: StreamConfig,
     ) -> Result<ProducerFactory<E>, CreateStreamError> {
-        if is_invalid_event_stream_name(stream_name) {
-            return Err(CreateStreamError::InvalidStreamName(
-                stream_name.to_string(),
-            ));
-        }
-
         let event_stream_directory = self
             .event_system_directory
             .join(STREAMS_DIRECTORY_NAME)
-            .join(stream_name);
+            .join(stream_name.as_str());
 
         let staging_directory = self
             .event_system_directory
             .join(STAGING_DIRECTORY_NAME)
-            .join(stream_name);
+            .join(stream_name.as_str());
+
         let temporary_event_stream_directory = StagingDirectory::new(staging_directory)?;
 
         let schema_file_path = temporary_event_stream_directory
@@ -139,14 +135,6 @@ impl EventSystem {
 
         Ok(ProducerFactory::new(broadcast, stream_guard))
     }
-}
-
-/// Returns whether the stream name is invalid as a single file name.
-fn is_invalid_event_stream_name(stream_name: &str) -> bool {
-    let is_current_or_parent_directory = matches!(stream_name, "." | "..");
-    let contains_forbidden_characters = stream_name.contains(['/', '\0']);
-
-    stream_name.is_empty() || is_current_or_parent_directory || contains_forbidden_characters
 }
 
 /// Creates a queue backed by a sealed file.

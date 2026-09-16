@@ -3,7 +3,10 @@
 use {
     agave_event_system::{
         CreateStreamError, Event, EventSystem, ProducerFactory, StreamConfig, event,
-        subscriber::{self, AvailableStream, DecodedMessage},
+        stream_name::StreamName,
+        subscriber::{
+            self, AvailableStream, DecodedMessage, TryConnectError, TryConnectTypedError,
+        },
     },
     rstest::rstest,
     std::{assert_matches, io::ErrorKind, path::PathBuf},
@@ -49,6 +52,8 @@ impl TestContext {
     }
 }
 
+const TEST_STREAM_NAME: StreamName = agave_event_system::stream_name!("test-stream");
+
 #[test]
 fn create_event_system_fails_when_path_is_a_file() {
     const EXISTING_CONTENTS: &[u8] = b"existing file contents are preserved";
@@ -74,29 +79,10 @@ fn create_event_system_fails_when_directory_is_reused() {
     assert_matches!(event_system_with_reused_path_result, Err(_));
 }
 
-#[rstest]
-#[case::empty("")]
-#[case::embedded_nul("stream\0name")]
-#[case::current_directory(".")]
-#[case::parent_directory("..")]
-#[case::nested_path("nested/stream")]
-#[case::absolute_path("/absolute")]
-#[case::trailing_slash("trailing/")]
-#[case::double_trailing_slash("trailing//")]
-#[case::trailing_dot("trailing/.")]
-fn create_stream_rejects_invalid_stream_names(#[case] invalid_name: &str) {
-    let test_context = TestContext::new_event_system();
-
-    assert_matches!(
-        test_context.event_system.create_stream::<TestEvent>(invalid_name, TEST_CONFIG),
-        Err(CreateStreamError::InvalidStreamName(name)) if name == invalid_name
-    );
-}
-
 #[test]
 fn create_stream_reserves_names_only_after_success() {
     let test_context = TestContext::new_event_system();
-    const REUSED_STREAM_NAME: &str = "reused-stream-name";
+    const REUSED_STREAM_NAME: StreamName = agave_event_system::stream_name!("reused-stream-name");
 
     let invalid_config = StreamConfig {
         capacity: 0,
@@ -128,7 +114,7 @@ fn create_stream_reserves_names_only_after_success() {
 
 #[test]
 fn stream_can_be_recreated_after_dropping_all_handles() {
-    const REUSED_STREAM_NAME: &str = "reused-stream-name";
+    const REUSED_STREAM_NAME: StreamName = TEST_STREAM_NAME;
     let directory = TempDir::new().unwrap();
     let event_system = EventSystem::new(directory.path()).unwrap();
 
@@ -163,7 +149,7 @@ fn producer_creation_respects_slot_limit(#[values(1, 2, 4)] producer_slots: usiz
 
     let producer_factory: ProducerFactory<TestEvent> = test_context
         .event_system
-        .create_stream("test-stream", stream_config)
+        .create_stream(TEST_STREAM_NAME, stream_config)
         .unwrap();
 
     for _ in 0..producer_slots {
@@ -181,9 +167,6 @@ fn producer_creation_respects_slot_limit(#[values(1, 2, 4)] producer_slots: usiz
 
 #[rstest]
 fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] consumer_slots: usize) {
-    use agave_event_system::subscriber::{TryConnectError, TryConnectTypedError};
-
-    const STREAM_NAME: &str = "test-stream";
     const TEST_EVENT: TestEvent = TestEvent { value: 42 };
 
     let test_context = TestContext::new_event_system();
@@ -193,7 +176,7 @@ fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] consumer_slo
     };
     let producer_factory: ProducerFactory<TestEvent> = test_context
         .event_system
-        .create_stream(STREAM_NAME, stream_config)
+        .create_stream(TEST_STREAM_NAME, stream_config)
         .unwrap();
     let mut producer = producer_factory.try_create_producer().unwrap();
 
@@ -218,7 +201,7 @@ fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] consumer_slo
 
     producer.emit_event(&TEST_EVENT).unwrap();
     for subscriber in &mut subscribers {
-        assert_eq!(STREAM_NAME, subscriber.stream_name());
+        assert_eq!(&TEST_STREAM_NAME, subscriber.stream_name());
         assert_eq!("TestEvent", subscriber.type_name());
 
         let received_event = subscriber.try_recv().unwrap().decode().unwrap();
@@ -233,12 +216,10 @@ fn dynamic_subscriber_can_connect_and_decode_events<E: Event>(
     #[case] event: E,
     #[case] expected_variant_name: Option<&str>,
 ) {
-    const STREAM_A_NAME: &str = "stream_a";
-
     let test_context = TestContext::new_event_system();
     let producer_factory: ProducerFactory<E> = test_context
         .event_system
-        .create_stream(STREAM_A_NAME, TEST_CONFIG)
+        .create_stream(TEST_STREAM_NAME, TEST_CONFIG)
         .unwrap();
 
     let mut producer = producer_factory.try_create_producer().unwrap();

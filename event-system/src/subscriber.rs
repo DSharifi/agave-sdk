@@ -1,6 +1,6 @@
 pub use wincode::ReadError;
 use {
-    crate::backend,
+    crate::{backend, stream_name::StreamName},
     std::{marker::PhantomData, path::PathBuf},
     wincode::Deserialize,
     wincode_dynamic::{Decoder, Fields, RootSchema},
@@ -71,7 +71,7 @@ impl<Mode> std::fmt::Debug for StreamSubscriber<Mode> {
 
 impl<Mode> StreamSubscriber<Mode> {
     /// The name of the stream the subscriber is listening on.
-    pub fn stream_name(&self) -> &str {
+    pub fn stream_name(&self) -> &StreamName {
         self.backend.stream_name()
     }
     /// The name of the type that is sent on the stream.
@@ -178,7 +178,7 @@ pub struct AvailableStream(backend::AvailableStream);
 
 impl AvailableStream {
     /// The name of the available stream.
-    pub fn stream_name(&self) -> &str {
+    pub fn stream_name(&self) -> &StreamName {
         self.0.stream_name()
     }
 
