@@ -1,8 +1,116 @@
+#[cfg(target_os = "linux")]
+use {
+    crate::common::{
+        TEST_CONFIG, TEST_EVENT, TestContextBuilder, TestEvent, assert_is_empty, assert_received,
+    },
+    agave_event_system::{
+        stream_name,
+        subscriber::{self, AvailableStream},
+    },
+};
 use {
     agave_event_system::stream_policy::{ParseStreamFilterError, StreamPolicy},
     rstest::rstest,
     std::assert_matches,
 };
+
+mod common;
+
+#[cfg(target_os = "linux")]
+#[test]
+fn toggling_stream_policy_for_live_event_system() {
+    let test_context = TestContextBuilder::new().build();
+
+    let create_producer = |stream_name| {
+        test_context
+            .event_system
+            .create_stream(stream_name, TEST_CONFIG)
+            .unwrap()
+            .try_create_producer()
+            .unwrap()
+    };
+
+    let network_packets_producer = create_producer(stream_name!("network.packets"));
+    let network_drops_producer = create_producer(stream_name!("network.drops"));
+    let block_production_transaction_producer =
+        create_producer(stream_name!("block-production.transaction"));
+
+    let subscriber = subscriber::StreamExplorer::new(test_context.event_system_path());
+    let mut available_streams: Vec<AvailableStream> =
+        subscriber.available_streams().collect::<Vec<_>>();
+
+    let mut connect = |name: &str| {
+        available_streams
+            .extract_if(.., |stream| stream.stream_name().as_str() == name)
+            .next()
+            .expect("stream should exist")
+            .try_connect_typed::<TestEvent>()
+            .unwrap()
+    };
+
+    let mut network_packets_subscriber = connect("network.packets");
+    let mut network_drops_subscriber = connect("network.drops");
+    let mut block_production_transaction_subscriber = connect("block-production.transaction");
+
+    assert!(
+        available_streams.is_empty(),
+        "sanity check failed that no other streams were created"
+    );
+
+    let mut producers = [
+        network_packets_producer,
+        network_drops_producer,
+        block_production_transaction_producer,
+    ];
+
+    // initially all are off due to default policy not being replaced
+    let mut emit_event_on_all_producers = move || {
+        for producer in producers.iter_mut() {
+            producer.emit_event(&TEST_EVENT).unwrap();
+        }
+    };
+
+    emit_event_on_all_producers();
+
+    assert_is_empty([
+        &mut network_packets_subscriber,
+        &mut network_drops_subscriber,
+        &mut block_production_transaction_subscriber,
+    ]);
+
+    // enable all streams
+    test_context
+        .event_system
+        .set_stream_policy("on".parse().unwrap());
+
+    // message sent earlier is not retained in the queues
+    assert_is_empty([
+        &mut network_packets_subscriber,
+        &mut network_drops_subscriber,
+        &mut block_production_transaction_subscriber,
+    ]);
+
+    emit_event_on_all_producers();
+
+    assert_received([
+        &mut network_packets_subscriber,
+        &mut network_drops_subscriber,
+        &mut block_production_transaction_subscriber,
+    ]);
+
+    test_context.event_system.set_stream_policy(
+        "off, network.=on, network.packets=off, block-production=on"
+            .parse()
+            .unwrap(),
+    );
+
+    emit_event_on_all_producers();
+    assert_is_empty([&mut network_packets_subscriber]);
+    assert_received([
+        &mut network_drops_subscriber,
+        &mut block_production_transaction_subscriber,
+    ]);
+}
 
 #[rstest]
 #[case::white_space(" ")]
@@ -14,42 +122,12 @@ fn policies_matches_off(#[case] stream_policy: StreamPolicy) {
     assert_eq!(stream_policy, off_policy);
 }
 
-#[rstest]
-#[case::adjacent("")]
-#[case::separated_by_prefix("banking_stage=on,")]
-fn rejects_duplicate_defaults(
-    #[case] intervening_rules: &str,
-    #[values("on", "off")] first: &str,
-    #[values("on", "off", " ON ", " oFf ")] second: &str,
-) {
-    let result = format!("{first},{intervening_rules}{second}").parse::<StreamPolicy>();
-    assert_eq!(
-        result,
-        Err(ParseStreamFilterError::DuplicateDefaultRule {
-            default_rule_1: first.to_string(),
-            default_rule_2: second.trim().to_ascii_lowercase(),
-        })
-    );
-}
+#[test]
+fn last_rule_wins() {
+    let policy: StreamPolicy = "off, network.=on, on, network.=off".parse().unwrap();
+    let expected: StreamPolicy = "on, network.=off".parse().unwrap();
 
-#[rstest]
-#[case::adjacent("")]
-#[case::separated_by_other_rules("on,network.=off,")]
-fn rejects_duplicate_prefixes(
-    #[case] intervening_rules: &str,
-    #[values("on", "off")] first: &str,
-    #[values("on", "off", "")] second: &str,
-) {
-    let result = format!("banking_stage={first},{intervening_rules}banking_stage={second}")
-        .parse::<StreamPolicy>();
-    assert_eq!(
-        result,
-        Err(ParseStreamFilterError::DuplicatePrefixRule {
-            prefix: "banking_stage".to_string(),
-            rule_1: first.to_string(),
-            rule_2: if second.is_empty() { "on" } else { second }.to_string(),
-        })
-    );
+    assert_eq!(policy, expected);
 }
 
 #[rstest]
@@ -77,6 +155,7 @@ fn accepts_distinct_prefixes(#[case] value: &str) {
 )]
 #[case::keyword_prefix("off,off=", "off,off=on")]
 #[case::uppercase_keyword_prefix("ON=", "ON=on")]
+#[case::bare_prefix_overrides_rule("banking_stage=off,banking_stage", "banking_stage=on")]
 #[case::empty_value("banking_stage=", "banking_stage=on")]
 #[case::blank_value("banking_stage= \t ", "banking_stage=on")]
 #[case::uppercase_default_on("ON", "on")]
@@ -116,38 +195,38 @@ fn normalizes_policy(#[case] policy_format_1: &str, #[case] policy_format_2: &st
 }
 
 #[rstest]
-#[case::only_separator(",")]
-#[case::only_empty_entries(" , ,\t,\n, ")]
-#[case::trailing_separator("on,")]
-#[case::leading_separator(",off")]
-#[case::consecutive_separators("on,,banking_stage=off")]
-#[case::blank_directive("on, \t\n ,banking_stage=off")]
-#[case::trailing_blank_directive("network.=on, \t")]
-fn rejects_empty_directives(#[case] value: &str) {
+#[case::only_separator(",", "off")]
+#[case::only_empty_entries(" , ,\t,\n, ", "off")]
+#[case::trailing_separator("on,", "on")]
+#[case::leading_separator(",off", "off")]
+#[case::consecutive_separators("on,,banking_stage=off", "on,banking_stage=off")]
+#[case::blank_directive("on, \t\n ,banking_stage=off", "on,banking_stage=off")]
+#[case::trailing_blank_directive("network.=on, \t", "network.=on")]
+fn ignores_empty_directives(#[case] value: &str, #[case] expected: &str) {
     assert_eq!(
-        value.parse::<StreamPolicy>(),
-        Err(ParseStreamFilterError::EmptyDirective)
+        value.parse::<StreamPolicy>().unwrap(),
+        expected.parse::<StreamPolicy>().unwrap()
     );
 }
 
 #[rstest]
-#[case::empty_prefix_on("=on")]
-#[case::empty_prefix_off("=off")]
-#[case::empty_prefix_and_value("=")]
-#[case::blank_prefix(" \t =on")]
-fn rejects_empty_prefixes(#[case] directive_with_no_prefix: &str) {
-    let policy_with_invalid_directive =
-        format!("on,network.=on,{directive_with_no_prefix},network.repair=off");
-
-    for stream_policy_string in [
-        directive_with_no_prefix.to_string(),
-        policy_with_invalid_directive,
+#[case::empty_prefix_on("=on", "on")]
+#[case::empty_prefix_off("=off", "off")]
+#[case::empty_prefix_and_value("=", "on")]
+#[case::blank_prefix(" \t =on", "on")]
+#[case::blank_prefix_and_value(" \t = \n", "on")]
+#[case::mixed_case_rule(" = oFf ", "off")]
+fn empty_prefix_sets_default_rule(#[case] directive: &str, #[case] default_rule: &str) {
+    for (policy, expected) in [
+        (directive.to_string(), default_rule.to_string()),
+        (
+            format!("on,network.=on,{directive},network.repair=off"),
+            format!("{default_rule},network.=on,network.repair=off"),
+        ),
     ] {
         assert_eq!(
-            stream_policy_string.parse::<StreamPolicy>(),
-            Err(ParseStreamFilterError::InvalidPrefixRule(
-                directive_with_no_prefix.trim().to_string()
-            ))
+            policy.parse::<StreamPolicy>().unwrap(),
+            expected.parse::<StreamPolicy>().unwrap()
         );
     }
 }
@@ -156,10 +235,14 @@ fn rejects_empty_prefixes(#[case] directive_with_no_prefix: &str) {
 #[case::unknown_value("invalid")]
 #[case::unsupported_value("allow")]
 #[case::extra_assignment_in_value("on=off")]
-fn rejects_invalid_prefix_rule_values(#[case] invalid_rule_value: &str) {
+fn rejects_invalid_rule_values(
+    #[case] invalid_rule_value: &str,
+    #[values("network.", "")] prefix: &str,
+) {
     for policy_string in [
-        format!("network.={invalid_rule_value}"),
-        format!("on,network.=on,network.={invalid_rule_value},network.repair=off"),
+        format!("{prefix}={invalid_rule_value}"),
+        format!("on,network.=on,{prefix}={invalid_rule_value},network.repair=off"),
+        format!("{prefix}={invalid_rule_value},{prefix}=on"),
     ] {
         assert_eq!(
             policy_string.parse::<StreamPolicy>(),

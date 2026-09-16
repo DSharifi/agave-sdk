@@ -45,7 +45,9 @@ impl EventSystem {
     ///
     /// The applied stream policy will also be applied to future stream creations
     /// of this event system.
-    pub fn set_stream_policy(&self, _stream_policy: StreamPolicy) {}
+    pub fn set_stream_policy(&self, stream_policy: StreamPolicy) {
+        self.backend.set_stream_policy(stream_policy)
+    }
 }
 
 impl std::fmt::Debug for EventSystem {

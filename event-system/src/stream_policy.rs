@@ -30,8 +30,8 @@ const OFF: &str = "off";
 ///
 /// The **prefix** selects streams whose names start with the given text.
 /// For example, `network.=on` enables events for `network.gossip`,
-/// `network.repair`, and `network.repair.requests`. Prefixes must be non-empty
-/// and are matched case-sensitively.
+/// `network.repair`, and `network.repair.requests`. Prefixes are matched
+/// case-sensitively. An empty prefix sets the default rule, so `=off` means `off`.
 ///
 /// The **rule** controls whether matching streams can emit events:
 ///
@@ -45,20 +45,14 @@ const OFF: &str = "off";
 /// Rule names ignore ASCII case: `off`, `OFF`, and `oFf` have the same effect.
 /// The examples below use lowercase names.
 ///
-/// For a non-empty policy, parsing returns a [`ParseStreamFilterError`] if any
-/// directive is empty, malformed, or repeated. This includes leading or trailing
-/// commas and consecutive commas.
-///
 /// # Rule precedence
 ///
 /// The longest matching prefix determines the rule for a stream. Streams with
 /// no matching prefix use the default rule, which is `off` unless a directive
 /// changes it. The default directive may appear anywhere in the list.
 ///
-/// A policy may contain at most one default directive and one directive per
-/// prefix. Repeating either is an error, even if the rule values agree.
-/// For example, `on,on` and `network.=on,network.=off` are both invalid.
-/// Different prefixes may overlap; the longest matching prefix takes precedence.
+/// If directives with duplicate prefix or default rules are used, the last directive
+/// will be used.
 ///
 /// # Examples
 ///
@@ -96,9 +90,9 @@ pub struct StreamPolicy {
 }
 
 impl StreamPolicy {
-    #[expect(
-        dead_code,
-        reason = "will be used in a follow up when policy is used on linux backend"
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(dead_code, reason = "only used by the linux backend")
     )]
     pub(crate) fn stream_rule(&self, stream_name: &StreamName) -> StreamRule {
         let best_match = self
@@ -122,7 +116,7 @@ impl FromStr for StreamPolicy {
         }
 
         let mut prefix_rules: Vec<PrefixStreamRule> = vec![];
-        let mut default_rule = None;
+        let mut default_rule = StreamRule::default();
 
         for directive in input
             .split(DIRECTIVE_DELIMITER)
@@ -130,34 +124,31 @@ impl FromStr for StreamPolicy {
             .map(str::trim)
         {
             if directive.is_empty() {
-                return Err(ParseStreamFilterError::EmptyDirective);
+                continue;
             }
 
-            if let Ok(parsed_rule) = directive.parse::<StreamRule>() {
-                if let Some(previous_default_rule) = default_rule.replace(parsed_rule) {
-                    return Err(ParseStreamFilterError::DuplicateDefaultRule {
-                        default_rule_1: previous_default_rule.to_string(),
-                        default_rule_2: parsed_rule.to_string(),
-                    });
-                }
+            if let Ok(parsed_default_rule) = directive.parse::<StreamRule>() {
+                default_rule = parsed_default_rule;
                 continue;
             }
 
             let prefix_rule = directive.parse::<PrefixStreamRule>()?;
 
-            if let Some(previous_rule) = prefix_rules
-                .iter()
-                // error only if the duplicate prefix has a different rule
-                .find(|rule| rule.prefix == prefix_rule.prefix)
-            {
-                return Err(ParseStreamFilterError::DuplicatePrefixRule {
-                    prefix: prefix_rule.prefix,
-                    rule_1: previous_rule.stream_state.to_string(),
-                    rule_2: prefix_rule.stream_state.to_string(),
-                });
+            // "=off," is the same as the default rule "off"
+            let prefix_was_empty = prefix_rule.prefix.is_empty();
+            if prefix_was_empty {
+                default_rule = prefix_rule.stream_state;
+                continue;
             }
 
-            prefix_rules.push(prefix_rule);
+            if let Some(previous_duplicate_rule) = prefix_rules
+                .iter_mut()
+                .find(|rule| rule.prefix == prefix_rule.prefix)
+            {
+                *previous_duplicate_rule = prefix_rule;
+            } else {
+                prefix_rules.push(prefix_rule);
+            }
         }
 
         prefix_rules.sort_by(|left, right| {
@@ -170,7 +161,7 @@ impl FromStr for StreamPolicy {
         });
 
         Ok(Self {
-            default_rule: default_rule.unwrap_or_default(),
+            default_rule,
             prefix_rules_sorted_by_length: prefix_rules.into_boxed_slice(),
         })
     }
@@ -190,9 +181,6 @@ impl FromStr for PrefixStreamRule {
             .split_once(PREFIX_RULE_ASSIGNMENT)
             .unwrap_or((input, ""));
         let prefix = prefix.trim();
-        if prefix.is_empty() {
-            return Err(ParseStreamFilterError::InvalidPrefixRule(input.to_string()));
-        }
 
         let rule_value = rule_value.trim();
         let stream_state = if rule_value.is_empty() {
@@ -243,21 +231,6 @@ impl std::fmt::Display for StreamRule {
 /// An error encountered while parsing a stream policy.
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum ParseStreamFilterError {
-    #[error("empty stream directive")]
-    EmptyDirective,
-    #[error("duplicate default rule: {default_rule_1} and {default_rule_2}")]
-    DuplicateDefaultRule {
-        default_rule_1: String,
-        default_rule_2: String,
-    },
-    #[error("duplicate rule for prefix {prefix:?}: {rule_1} and {rule_2}")]
-    DuplicatePrefixRule {
-        prefix: String,
-        rule_1: String,
-        rule_2: String,
-    },
-    #[error("invalid prefix rule. Expected a non-empty prefix, got {0}")]
-    InvalidPrefixRule(String),
     #[error("invalid stream rule value. Must be either {ON} or {OFF}, got {0}")]
     InvalidStreamRuleValue(String),
 }
