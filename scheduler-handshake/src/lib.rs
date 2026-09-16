@@ -15,6 +15,20 @@ mod tests;
 
 pub use shared::*;
 
+/// Creates both sides of a local scheduling session without a socket handshake.
+///
+/// Validates the logon and initializes the shared allocator and queues. Both endpoints
+/// use this build's interfaces, so no protocol-version negotiation is performed.
+pub fn setup_local_session(
+    logon: ClientLogon,
+) -> Result<(AgaveSession, ClientSession), SessionSetupError> {
+    let (agave, files) = server::Server::setup_session(logon)?;
+    // SAFETY: Server setup initialized these files in protocol order with matching message
+    // types. The client SPSC endpoints have not been joined, and we join them only once.
+    let client = unsafe { client::setup_session(&logon, files)? };
+    Ok((agave, client))
+}
+
 /// Returns the major version of this crate and its handshake protocol.
 pub fn version() -> u64 {
     env!("CARGO_PKG_VERSION_MAJOR")

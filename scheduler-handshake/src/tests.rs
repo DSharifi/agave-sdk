@@ -1,9 +1,10 @@
 use {
     crate::{
         AgaveHandshakeError, ClientHandshakeError, ClientLogon, ProtocolVersions,
+        SessionSetupError,
         client::{connect, connect_path},
         server::Server,
-        shared::MAX_WORKERS,
+        shared::{MAX_ALLOCATOR_HANDLES, MAX_WORKERS},
     },
     agave_scheduler_bindings::{
         CheckResponseRegion, CheckWorkerToPackMessage, ExecutionResponseRegion,
@@ -11,7 +12,7 @@ use {
         ProgressMessage, SharableTransactionBatchRegion, SharableTransactionRegion,
         TpuToPackMessage,
     },
-    std::time::Duration,
+    std::{assert_matches, time::Duration},
     tempfile::NamedTempFile,
 };
 
@@ -314,6 +315,376 @@ fn message_passing_on_all_queues() {
 }
 
 #[test]
+fn local_session_message_passing_on_all_queues() {
+    let logon = ClientLogon {
+        worker_count: 2,
+        check_worker_count: 2,
+        allocator_size: 64 * 1024 * 1024,
+        allocator_handles: 1,
+        tpu_to_pack_capacity: 2,
+        progress_tracker_capacity: 2,
+        pack_to_worker_capacity: 2,
+        worker_to_pack_capacity: 2,
+        flags: 21,
+        pack_to_check_worker_capacity: 2,
+        check_worker_to_pack_capacity: 2,
+    };
+    let (mut agave, mut client) = crate::setup_local_session(logon).unwrap();
+    assert_eq!(agave.flags, logon.flags);
+    assert_eq!(agave.workers.len(), logon.worker_count);
+    assert_eq!(client.workers.len(), logon.worker_count);
+    assert_eq!(agave.check_workers.len(), logon.check_worker_count);
+
+    // Test messages.
+    let tpu_to_pack = TpuToPackMessage {
+        transaction: SharableTransactionRegion {
+            offset: 10,
+            length: 5,
+        },
+        flags: 21,
+        src_addr: [4; 16],
+    };
+    let progress_tracker = ProgressMessage {
+        leader_state: agave_scheduler_bindings::LEADER_READY,
+        current_slot_progress: 32,
+        epoch: 7,
+        current_slot: 3,
+        next_leader_slot: 12,
+        leader_range_end: 16,
+        remaining_cost_units: 12_000_000,
+        remaining_allocated_accounts_data_size: 20_000_000,
+        latest_blockhash: [42; 32],
+        target_bank_time_ms: 0,
+    };
+    let batch = SharableTransactionBatchRegion {
+        num_transactions: 5,
+        transactions_offset: 100,
+    };
+    let pack_to_check_worker = PackToCheckWorkerMessage { flags: 123, batch };
+    let pack_to_worker = PackToExecutionWorkerMessage {
+        flags: 1,
+        max_working_slot: 100,
+        batch,
+    };
+    let check_worker_to_pack = CheckWorkerToPackMessage {
+        batch,
+        processed_code: agave_scheduler_bindings::processed_codes::PROCESSED,
+        responses: CheckResponseRegion {
+            num_transaction_responses: 2,
+            transaction_responses_offset: 1,
+        },
+    };
+    let worker_to_pack = ExecutionWorkerToPackMessage {
+        batch,
+        processed_code: agave_scheduler_bindings::processed_codes::PROCESSED,
+        responses: ExecutionResponseRegion {
+            num_transaction_responses: 2,
+            transaction_responses_offset: 1,
+        },
+    };
+
+    agave.tpu_to_pack.producer.try_write(tpu_to_pack).unwrap();
+    assert_eq!(client.tpu_to_pack.try_read(), Some(tpu_to_pack));
+    agave.progress_tracker.try_write(progress_tracker).unwrap();
+    assert_eq!(client.progress_tracker.try_read(), Some(progress_tracker));
+
+    for (agave_worker, client_worker) in agave.workers.iter_mut().zip(&mut client.workers) {
+        client_worker
+            .pack_to_worker
+            .try_write(pack_to_worker)
+            .unwrap();
+        assert_eq!(agave_worker.pack_to_worker.try_read(), Some(pack_to_worker));
+        agave_worker
+            .worker_to_pack
+            .try_write(worker_to_pack)
+            .unwrap();
+        assert_eq!(
+            client_worker.worker_to_pack.try_read(),
+            Some(worker_to_pack)
+        );
+    }
+    for worker in &agave.check_workers {
+        client
+            .pack_to_check_worker
+            .try_write(pack_to_check_worker)
+            .unwrap();
+        assert_eq!(
+            worker.pack_to_check_worker.try_read(),
+            Some(pack_to_check_worker)
+        );
+        worker
+            .check_worker_to_pack
+            .try_write(check_worker_to_pack)
+            .unwrap();
+        assert_eq!(
+            client.check_worker_to_pack.try_read(),
+            Some(check_worker_to_pack)
+        );
+    }
+}
+
+#[test]
+fn local_session_rejects_invalid_worker_count() {
+    for count in [0, MAX_WORKERS.checked_add(1).unwrap(), usize::MAX] {
+        let result = crate::setup_local_session(ClientLogon {
+            worker_count: count,
+            check_worker_count: 1,
+            allocator_handles: 1,
+            ..ClientLogon::default()
+        });
+        assert_matches!(
+            result.err(),
+            Some(SessionSetupError::Server(AgaveHandshakeError::WorkerCount(actual))) if actual == count
+        );
+    }
+}
+
+#[test]
+fn local_session_rejects_invalid_check_worker_count() {
+    for count in [0, MAX_WORKERS.checked_add(1).unwrap(), usize::MAX] {
+        let result = crate::setup_local_session(ClientLogon {
+            worker_count: 1,
+            check_worker_count: count,
+            allocator_handles: 1,
+            ..ClientLogon::default()
+        });
+        assert_matches!(
+            result.err(),
+            Some(SessionSetupError::Server(AgaveHandshakeError::CheckWorkerCount(actual))) if actual == count
+        );
+    }
+}
+
+#[test]
+fn local_session_rejects_invalid_allocator_handles() {
+    for count in [0, MAX_ALLOCATOR_HANDLES.checked_add(1).unwrap(), usize::MAX] {
+        let result = crate::setup_local_session(ClientLogon {
+            worker_count: 1,
+            check_worker_count: 1,
+            allocator_handles: count,
+            ..ClientLogon::default()
+        });
+        assert_matches!(
+            result.err(),
+            Some(SessionSetupError::Server(AgaveHandshakeError::AllocatorHandles(actual))) if actual == count
+        );
+    }
+}
+
+#[test]
+fn setup_session_rejects_invalid_worker_counts() {
+    for count in [0, MAX_WORKERS.checked_add(1).unwrap(), usize::MAX] {
+        let result = Server::setup_session(ClientLogon {
+            worker_count: count,
+            check_worker_count: 1,
+            allocator_handles: 1,
+            ..ClientLogon::default()
+        });
+        assert_matches!(
+            result.err(),
+            Some(AgaveHandshakeError::WorkerCount(actual)) if actual == count
+        );
+    }
+}
+
+#[test]
+fn setup_session_rejects_invalid_check_worker_counts() {
+    for count in [0, MAX_WORKERS.checked_add(1).unwrap(), usize::MAX] {
+        let result = Server::setup_session(ClientLogon {
+            worker_count: 1,
+            check_worker_count: count,
+            allocator_handles: 1,
+            ..ClientLogon::default()
+        });
+        assert_matches!(
+            result.err(),
+            Some(AgaveHandshakeError::CheckWorkerCount(actual)) if actual == count
+        );
+    }
+}
+
+#[test]
+fn setup_session_rejects_invalid_allocator_handles() {
+    for count in [0, MAX_ALLOCATOR_HANDLES.checked_add(1).unwrap(), usize::MAX] {
+        let result = Server::setup_session(ClientLogon {
+            worker_count: 1,
+            check_worker_count: 1,
+            allocator_handles: count,
+            ..ClientLogon::default()
+        });
+        assert_matches!(
+            result.err(),
+            Some(AgaveHandshakeError::AllocatorHandles(actual)) if actual == count
+        );
+    }
+}
+
+#[test]
+fn local_session_rejects_unrepresentable_allocator_sizes() {
+    for size in [usize::MAX, isize::MAX as usize] {
+        let result = crate::setup_local_session(ClientLogon {
+            worker_count: 1,
+            check_worker_count: 1,
+            allocator_handles: 1,
+            allocator_size: size,
+            ..ClientLogon::default()
+        });
+        assert_matches!(
+            result.err(),
+            Some(SessionSetupError::Server(AgaveHandshakeError::AllocatorSize(actual))) if actual == size
+        );
+    }
+}
+
+#[test]
+fn local_session_rejects_unrepresentable_queue_capacities() {
+    let logon = ClientLogon {
+        worker_count: 1,
+        check_worker_count: 1,
+        allocator_handles: 1,
+        // An undersized allocator ensures queue validation happens before allocation.
+        allocator_size: 0,
+        ..ClientLogon::default()
+    };
+    // Exercise power-of-two rounding and multiplication overflow for every message type.
+    for capacity in [usize::MAX, 1usize << (usize::BITS - 1)] {
+        for (expected_field, logon) in [
+            (
+                "tpu_to_pack_capacity",
+                ClientLogon {
+                    tpu_to_pack_capacity: capacity,
+                    ..logon
+                },
+            ),
+            (
+                "progress_tracker_capacity",
+                ClientLogon {
+                    progress_tracker_capacity: capacity,
+                    ..logon
+                },
+            ),
+            (
+                "pack_to_worker_capacity",
+                ClientLogon {
+                    pack_to_worker_capacity: capacity,
+                    ..logon
+                },
+            ),
+            (
+                "worker_to_pack_capacity",
+                ClientLogon {
+                    worker_to_pack_capacity: capacity,
+                    ..logon
+                },
+            ),
+            (
+                "pack_to_check_worker_capacity",
+                ClientLogon {
+                    pack_to_check_worker_capacity: capacity,
+                    ..logon
+                },
+            ),
+            (
+                "check_worker_to_pack_capacity",
+                ClientLogon {
+                    check_worker_to_pack_capacity: capacity,
+                    ..logon
+                },
+            ),
+        ] {
+            let result = crate::setup_local_session(logon);
+            let Err(SessionSetupError::Server(AgaveHandshakeError::QueueCapacity {
+                field,
+                capacity: actual,
+            })) = result
+            else {
+                panic!("expected QueueCapacity error for {expected_field}={capacity}");
+            };
+            assert_eq!(field, expected_field);
+            assert_eq!(actual, capacity);
+        }
+    }
+}
+
+#[test]
+fn queue_payload_size_boundary_is_checked() {
+    // The rounded payload capacity leaves no room for the header, or overflows itself.
+    let logon = ClientLogon {
+        worker_count: 1,
+        check_worker_count: 1,
+        allocator_handles: 1,
+        progress_tracker_capacity: (usize::MAX / core::mem::size_of::<ProgressMessage>())
+            .checked_next_power_of_two()
+            .unwrap(),
+        ..ClientLogon::default()
+    };
+    let Err(AgaveHandshakeError::QueueCapacity { field, capacity }) = logon.validate() else {
+        panic!("expected QueueCapacity error");
+    };
+    assert_eq!(field, "progress_tracker_capacity");
+    assert_eq!(capacity, logon.progress_tracker_capacity);
+}
+
+#[test]
+fn file_size_rounding_is_checked() {
+    for page_size in [
+        crate::shared::PageSize::Standard,
+        crate::shared::PageSize::Huge,
+    ] {
+        let bytes = page_size.bytes();
+        let largest = (crate::shared::POINTER_OFFSET_LIMIT / bytes) * bytes;
+        assert_eq!(crate::shared::checked_file_size(1, page_size), Some(bytes));
+        assert_eq!(
+            crate::shared::checked_file_size(largest, page_size),
+            Some(largest)
+        );
+        assert_eq!(
+            crate::shared::checked_file_size(largest.checked_add(1).unwrap(), page_size),
+            None
+        );
+        assert_eq!(
+            crate::shared::checked_file_size(usize::MAX, page_size),
+            None
+        );
+    }
+}
+
+#[test]
+fn reject_unrepresentable_sizes_over_socket() {
+    let logon = ClientLogon {
+        worker_count: 1,
+        check_worker_count: 1,
+        allocator_handles: 1,
+        ..ClientLogon::default()
+    };
+    for logon in [
+        ClientLogon {
+            allocator_size: usize::MAX,
+            ..logon
+        },
+        ClientLogon {
+            tpu_to_pack_capacity: usize::MAX,
+            ..logon
+        },
+    ] {
+        let ipc = NamedTempFile::new().unwrap();
+        std::fs::remove_file(ipc.path()).unwrap();
+        let mut server = Server::new(ipc.path()).unwrap();
+        let expected = logon.validate().unwrap_err().to_string();
+        let server_handle = std::thread::spawn(move || {
+            let error = server.accept().err().expect("expected setup rejection");
+            assert_eq!(error.to_string(), expected);
+        });
+        let result = connect(ipc, logon, Duration::from_secs(1));
+        let Err(ClientHandshakeError::Rejected(reason)) = result else {
+            panic!("expected rejection for an unrepresentable size");
+        };
+        assert_eq!(reason, logon.validate().unwrap_err().to_string());
+        server_handle.join().unwrap();
+    }
+}
+
+#[test]
 fn check_worker_queues_use_dedicated_capacities() {
     const CHECK_REQUEST_CAPACITY: usize = 1 << 18;
     const CHECK_RESPONSE_CAPACITY: usize = 1 << 19;
@@ -348,7 +719,9 @@ fn check_worker_queues_use_dedicated_capacities() {
             .unwrap()
     );
 
-    crate::client::setup_session(&logon, files).unwrap();
+    // SAFETY: These files came directly from server setup and their client endpoints have not
+    // been joined. Their order and message types are unchanged.
+    unsafe { crate::client::setup_session(&logon, files).unwrap() };
 }
 
 #[test]

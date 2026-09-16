@@ -18,6 +18,26 @@ pub(crate) const LOGON_FAILURE: u8 = 0x02;
 pub(crate) const MAX_ALLOCATOR_HANDLES: usize = 128;
 pub(crate) const GLOBAL_ALLOCATORS: usize = 1;
 
+pub(crate) const STANDARD_PAGE_SIZE: usize = 4096;
+pub(crate) const HUGE_PAGE_SIZE: usize = 2 * 1024 * 1024;
+// Mappings must fit within the signed offset range used by pointer arithmetic.
+pub(crate) const POINTER_OFFSET_LIMIT: usize = isize::MAX as usize;
+
+#[derive(Clone, Copy)]
+pub(crate) enum PageSize {
+    Standard,
+    Huge,
+}
+
+impl PageSize {
+    pub(crate) const fn bytes(self) -> usize {
+        match self {
+            Self::Standard => STANDARD_PAGE_SIZE,
+            Self::Huge => HUGE_PAGE_SIZE,
+        }
+    }
+}
+
 /// Versions of the interfaces shared by Agave and an external scheduler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
@@ -104,6 +124,69 @@ pub struct ClientLogon {
 }
 
 impl ClientLogon {
+    /// Validates counts and checks that allocator and queue sizes can be represented.
+    ///
+    /// Allocation can still fail if a size is too small or resources are unavailable.
+    pub fn validate(&self) -> Result<(), AgaveHandshakeError> {
+        if !(1..=MAX_WORKERS).contains(&self.worker_count) {
+            return Err(AgaveHandshakeError::WorkerCount(self.worker_count));
+        }
+
+        if !(1..=MAX_WORKERS).contains(&self.check_worker_count) {
+            return Err(AgaveHandshakeError::CheckWorkerCount(
+                self.check_worker_count,
+            ));
+        }
+
+        if !(1..=MAX_ALLOCATOR_HANDLES).contains(&self.allocator_handles) {
+            return Err(AgaveHandshakeError::AllocatorHandles(
+                self.allocator_handles,
+            ));
+        }
+
+        checked_file_size(self.allocator_size, PageSize::Huge)
+            .ok_or(AgaveHandshakeError::AllocatorSize(self.allocator_size))?;
+
+        validate_queue_capacity(
+            "tpu_to_pack_capacity",
+            self.tpu_to_pack_capacity,
+            shaq::spsc::try_minimum_file_size::<TpuToPackMessage>,
+            PageSize::Huge,
+        )?;
+        validate_queue_capacity(
+            "progress_tracker_capacity",
+            self.progress_tracker_capacity,
+            shaq::spsc::try_minimum_file_size::<ProgressMessage>,
+            PageSize::Standard,
+        )?;
+        validate_queue_capacity(
+            "pack_to_worker_capacity",
+            self.pack_to_worker_capacity,
+            shaq::spsc::try_minimum_file_size::<PackToExecutionWorkerMessage>,
+            PageSize::Huge,
+        )?;
+        validate_queue_capacity(
+            "worker_to_pack_capacity",
+            self.worker_to_pack_capacity,
+            shaq::spsc::try_minimum_file_size::<ExecutionWorkerToPackMessage>,
+            PageSize::Huge,
+        )?;
+        validate_queue_capacity(
+            "pack_to_check_worker_capacity",
+            self.pack_to_check_worker_capacity,
+            shaq::mpmc::try_minimum_file_size::<PackToCheckWorkerMessage>,
+            PageSize::Huge,
+        )?;
+        validate_queue_capacity(
+            "check_worker_to_pack_capacity",
+            self.check_worker_to_pack_capacity,
+            shaq::mpmc::try_minimum_file_size::<CheckWorkerToPackMessage>,
+            PageSize::Huge,
+        )?;
+
+        Ok(())
+    }
+
     pub fn try_from_bytes(buffer: &[u8]) -> Option<Self> {
         if buffer.len() != core::mem::size_of::<Self>() {
             return None;
@@ -114,6 +197,25 @@ impl ClientLogon {
         // - `Self` is valid for any byte pattern
         Some(unsafe { core::ptr::read_unaligned(buffer.as_ptr().cast()) })
     }
+}
+
+fn validate_queue_capacity(
+    field: &'static str,
+    capacity: usize,
+    minimum_file_size: fn(usize) -> Result<usize, ShaqError>,
+    page_size: PageSize,
+) -> Result<(), AgaveHandshakeError> {
+    let size = minimum_file_size(capacity)
+        .map_err(|_| AgaveHandshakeError::QueueCapacity { field, capacity })?;
+    checked_file_size(size, page_size)
+        .ok_or(AgaveHandshakeError::QueueCapacity { field, capacity })?;
+    Ok(())
+}
+
+/// Rounds up to a page boundary while keeping the mapping size within pointer-offset limits.
+pub(crate) fn checked_file_size(size: usize, page_size: PageSize) -> Option<usize> {
+    size.checked_next_multiple_of(page_size.bytes())
+        .filter(|&size| size <= POINTER_OFFSET_LIMIT)
 }
 
 pub mod logon_flags {}
@@ -134,6 +236,15 @@ pub struct ClientSession {
 pub struct ClientWorkerSession {
     pub pack_to_worker: shaq::spsc::Producer<PackToExecutionWorkerMessage>,
     pub worker_to_pack: shaq::spsc::Consumer<ExecutionWorkerToPackMessage>,
+}
+
+/// Potential errors when creating both sides of a local scheduling session.
+#[derive(Debug, Error)]
+pub enum SessionSetupError {
+    #[error("Server session setup failed: {0}")]
+    Server(#[from] AgaveHandshakeError),
+    #[error("Client session setup failed: {0}")]
+    Client(#[from] ClientHandshakeError),
 }
 
 /// Potential errors that can occur during the client's side of the handshake.
@@ -206,6 +317,13 @@ pub enum AgaveHandshakeError {
     CheckWorkerCount(usize),
     #[error("Allocator handles; count={0}")]
     AllocatorHandles(usize),
+    #[error("Allocator size cannot be represented; size={0}")]
+    AllocatorSize(usize),
+    #[error("Queue capacity cannot be represented; field={field}, capacity={capacity}")]
+    QueueCapacity {
+        field: &'static str,
+        capacity: usize,
+    },
     #[error("Rts alloc; err={0:?}")]
     RtsAlloc(#[from] RtsAllocError),
     #[error("Shaq; err={0:?}")]
