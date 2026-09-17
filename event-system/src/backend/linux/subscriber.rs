@@ -1,6 +1,9 @@
 use {
     super::{QUEUE_FILE_NAME_PREFIX, REQUIRED_SEALS, SCHEMA_FILE_NAME, STREAMS_DIRECTORY_NAME},
-    crate::subscriber::{TryConnectError, TryRecvError},
+    crate::{
+        stream_name::{StreamName, StreamNameValidationError},
+        subscriber::{TryConnectError, TryRecvError},
+    },
     nix::{
         dir::Dir,
         fcntl::{OFlag, openat},
@@ -19,13 +22,13 @@ use {
 #[derive(Debug)]
 pub(crate) struct StreamSubscriber {
     slice_consumer: shaq::broadcast::SliceConsumer,
-    stream_name: String,
+    stream_name: StreamName,
     schema: RootSchema,
 }
 
 impl StreamSubscriber {
     /// The name of the stream the subscriber is listening on.
-    pub(crate) fn stream_name(&self) -> &str {
+    pub(crate) fn stream_name(&self) -> &StreamName {
         &self.stream_name
     }
     /// The name of the type that is sent on the stream.
@@ -113,7 +116,7 @@ impl StreamExplorer {
 
 #[derive(Debug)]
 pub(crate) struct AvailableStream {
-    stream_name: String,
+    stream_name: StreamName,
     schema: RootSchema,
     broadcast_handle: Broadcast<UnknownType>,
 }
@@ -135,7 +138,7 @@ impl AvailableStream {
         })
     }
 
-    pub(crate) fn stream_name(&self) -> &str {
+    pub(crate) fn stream_name(&self) -> &StreamName {
         &self.stream_name
     }
 
@@ -152,7 +155,10 @@ impl AvailableStream {
         let stream_name = stream_directory
             .file_name()
             .into_string()
-            .map_err(|_| CreateAvailableStreamError::InvalidStreamName)?;
+            .map_err(|_| CreateAvailableStreamError::StreamNameIsNotUtf8Encoded)
+            .and_then(|name| {
+                StreamName::try_new(name).map_err(CreateAvailableStreamError::StreamNameIsNotValid)
+            })?;
 
         // Keep an open file descriptor for the stream directory and use it for all lookups.
         //
@@ -273,8 +279,10 @@ enum CreateAvailableStreamError {
     //
     #[error("failed to deserialize the stream schema")]
     SchemaDeserializationFailed(#[from] wincode::ReadError),
-    #[error("the stream directory must have a UTF-8 encoded file name")]
-    InvalidStreamName,
+    #[error("the stream directory must have a valid UTF-8 encoded file name")]
+    StreamNameIsNotUtf8Encoded,
+    #[error("the stream directory has a name that is invalid {0}")]
+    StreamNameIsNotValid(StreamNameValidationError),
     #[error("the queue file name must contain a valid u64 identifier")]
     InvalidQueueIdentifier,
     #[error("the queue file is not properly sealed against resizing")]
@@ -292,7 +300,7 @@ mod tests {
             CreateAvailableStreamError, Dir, Mode, OFlag, QUEUE_FILE_NAME_PREFIX, REQUIRED_SEALS,
             STREAMS_DIRECTORY_NAME, open_queue,
         },
-        crate::{EventSystem, ProducerFactory, StreamConfig, event},
+        crate::{EventSystem, ProducerFactory, StreamConfig, event, stream_name},
         nix::{
             fcntl::{FcntlArg, SealFlag, fcntl},
             sys::memfd::{MFdFlags, memfd_create},
@@ -325,7 +333,7 @@ mod tests {
             let event_system = EventSystem::new(directory.path()).unwrap();
             let producer_factory = event_system
                 .create_stream::<TestEvent>(
-                    "test-stream",
+                    stream_name!("test-stream"),
                     StreamConfig {
                         capacity: 2,
                         producer_slots: 1,

@@ -2,6 +2,7 @@ use {
     crate::{
         Event, ProducerFactory,
         backend::{self},
+        stream_name::StreamName,
     },
     std::path::Path,
     thiserror::Error,
@@ -30,7 +31,7 @@ impl EventSystem {
     /// and returns its [`ProducerFactory`].
     pub fn create_stream<E: Event>(
         &self,
-        stream_name: &str,
+        stream_name: StreamName,
         stream_config: StreamConfig,
     ) -> Result<ProducerFactory<E>, CreateStreamError> {
         self.backend
@@ -70,8 +71,6 @@ pub struct EventQueueError(#[source] pub(crate) backend::EventQueueError);
 
 #[derive(Debug, Error)]
 pub enum CreateStreamError {
-    #[error("event stream name `{0}` is invalid")]
-    InvalidStreamName(String),
     #[error("failed to serialize the event-stream schema")]
     FailedToSerializeSchema(#[source] wincode::WriteError),
     #[error("failed to create the event-stream files")]

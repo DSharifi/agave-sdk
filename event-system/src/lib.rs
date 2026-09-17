@@ -28,10 +28,12 @@ use {
 };
 
 pub mod producer;
+pub mod stream_name;
 pub mod subscriber;
 
 #[doc(hidden)]
 pub mod __private {
+    pub use crate::stream_name::macro_support::stream_name;
 
     pub mod event_macro {
         pub use {wincode::*, wincode_dynamic::*};

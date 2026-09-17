@@ -3,6 +3,7 @@ use {
         Event,
         event_system::{CreateEventSystemError, CreateStreamError, StreamConfig},
         producer::EmitEventError,
+        stream_name::StreamName,
         subscriber::{TryConnectError, TryRecvError},
     },
     std::{
@@ -49,7 +50,7 @@ impl EventSystem {
 
     pub(crate) fn create_stream<E: Event>(
         &self,
-        _stream_name: &str,
+        _stream_name: StreamName,
         _stream_config: StreamConfig,
     ) -> Result<ProducerFactory<E>, CreateStreamError> {
         Ok(ProducerFactory::new())
@@ -100,11 +101,13 @@ impl StreamExplorer {
 }
 
 #[derive(Debug)]
-pub(crate) struct StreamSubscriber;
+pub(crate) struct StreamSubscriber {
+    stream_name: StreamName,
+}
 
 impl StreamSubscriber {
-    pub(crate) fn stream_name(&self) -> &str {
-        ""
+    pub(crate) fn stream_name(&self) -> &StreamName {
+        &self.stream_name
     }
 
     pub(crate) fn type_name(&self) -> &str {
@@ -157,13 +160,13 @@ impl ProducerMetadata<'_> {
 
 #[derive(Debug)]
 pub(crate) struct AvailableStream {
-    stream_name: String,
+    stream_name: StreamName,
     type_name: String,
     dummy_schema: RootSchema,
 }
 
 impl AvailableStream {
-    pub(crate) fn stream_name(&self) -> &str {
+    pub(crate) fn stream_name(&self) -> &StreamName {
         &self.stream_name
     }
 
@@ -176,6 +179,8 @@ impl AvailableStream {
     }
 
     pub(crate) fn try_connect(self) -> Result<StreamSubscriber, TryConnectError> {
-        Ok(StreamSubscriber)
+        Ok(StreamSubscriber {
+            stream_name: self.stream_name,
+        })
     }
 }
