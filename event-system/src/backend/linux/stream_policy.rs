@@ -1,6 +1,7 @@
 use {
     super::StreamGuard,
     crate::{
+        cache_padded::CachePadded,
         stream_name::StreamName,
         stream_policy::{StreamPolicy, StreamRule},
     },
@@ -58,7 +59,7 @@ impl StreamPolicyManager {
 
 #[derive(Debug)]
 pub(super) struct AtomicStreamRule {
-    is_on: AtomicBool,
+    is_on: CachePadded<AtomicBool>,
 }
 
 impl From<StreamRule> for AtomicStreamRule {
@@ -70,7 +71,7 @@ impl From<StreamRule> for AtomicStreamRule {
         };
 
         Self {
-            is_on: AtomicBool::new(is_on),
+            is_on: CachePadded::new(AtomicBool::new(is_on)),
         }
     }
 }

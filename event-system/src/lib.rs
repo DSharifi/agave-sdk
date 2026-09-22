@@ -44,6 +44,8 @@ pub mod __private {
 #[cfg_attr(target_os = "linux", path = "backend/linux.rs")]
 #[cfg_attr(not(target_os = "linux"), path = "backend/stub.rs")]
 mod backend;
+#[cfg(target_os = "linux")] // cache_padded is only used by linux backend as of now
+pub(crate) mod cache_padded;
 mod event_system;
 mod producer_factory;
 mod queue_cell;
