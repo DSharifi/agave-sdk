@@ -5,12 +5,13 @@ use {
         producer::EmitEventError,
         stream_name::StreamName,
         stream_policy::StreamPolicy,
-        subscriber::{TryConnectError, TryRecvError},
+        subscriber::{RecvTimeoutError, TryConnectError, TryRecvError},
     },
     std::{
         fmt::Debug,
         marker::PhantomData,
         path::{Path, PathBuf},
+        time::Duration,
     },
     wincode_dynamic::RootSchema,
 };
@@ -119,6 +120,13 @@ impl StreamSubscriber {
 
     pub(crate) fn try_recv(&mut self) -> Result<StreamMessage<'_>, TryRecvError> {
         Err(TryRecvError::Empty)
+    }
+
+    pub(crate) fn recv_timeout(
+        &mut self,
+        _timeout: Duration,
+    ) -> Result<StreamMessage<'_>, RecvTimeoutError> {
+        Err(RecvTimeoutError)
     }
 }
 

@@ -1,7 +1,7 @@
 pub use wincode::ReadError;
 use {
     crate::{backend, stream_name::StreamName},
-    std::{marker::PhantomData, path::PathBuf},
+    std::{marker::PhantomData, path::PathBuf, time::Duration},
     wincode::Deserialize,
     wincode_dynamic::{Decoder, Fields, RootSchema},
 };
@@ -82,6 +82,14 @@ impl<Mode> StreamSubscriber<Mode> {
     /// Returns a message if there is any unseen message in the stream.
     pub fn try_recv(&mut self) -> Result<StreamMessage<'_, Mode>, TryRecvError> {
         self.backend.try_recv().map(StreamMessage::new)
+    }
+
+    /// Returns a message if there is any unseen message in the stream within the given timeout duration.
+    pub fn recv_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<StreamMessage<'_, Mode>, RecvTimeoutError> {
+        self.backend.recv_timeout(timeout).map(StreamMessage::new)
     }
 
     fn new(backend: backend::StreamSubscriber) -> Self {
@@ -228,6 +236,11 @@ pub enum TryRecvError {
     #[error("the stream has no new message")]
     Empty,
 }
+
+/// An error if no new message is observed on a stream within a timeout duration.
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+#[error("the stream had no new message within the timeout")]
+pub struct RecvTimeoutError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TryConnectTypedError {

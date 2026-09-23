@@ -2,19 +2,23 @@ use {
     super::{QUEUE_FILE_NAME_PREFIX, REQUIRED_SEALS, SCHEMA_FILE_NAME, STREAMS_DIRECTORY_NAME},
     crate::{
         stream_name::{StreamName, StreamNameValidationError},
-        subscriber::{TryConnectError, TryRecvError},
+        subscriber::{RecvTimeoutError, TryConnectError, TryRecvError},
     },
     nix::{
         dir::Dir,
         fcntl::{OFlag, openat},
         sys::stat::Mode,
     },
-    shaq::broadcast::{Broadcast, LaneMetadata, SliceReadGuard, UnknownType},
+    shaq::{
+        broadcast::{Broadcast, LaneMetadata, SliceReadGuard, UnknownType},
+        error::WaitError,
+    },
     std::{
         fs::File,
         io::{self, Read},
         os::fd::AsRawFd,
         path::PathBuf,
+        time::Duration,
     },
     wincode_dynamic::RootSchema,
 };
@@ -39,6 +43,21 @@ impl StreamSubscriber {
     /// Returns a message if there is any unseen message in the stream.
     pub(crate) fn try_recv(&mut self) -> Result<StreamMessage<'_>, TryRecvError> {
         let read_guard = self.slice_consumer.try_read().ok_or(TryRecvError::Empty)?;
+
+        Ok(StreamMessage {
+            schema: &self.schema,
+            read_guard,
+        })
+    }
+
+    pub(crate) fn recv_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<StreamMessage<'_>, RecvTimeoutError> {
+        let read_guard = self
+            .slice_consumer
+            .read_timeout(timeout)
+            .map_err(|_wait_error: WaitError| RecvTimeoutError)?;
 
         Ok(StreamMessage {
             schema: &self.schema,
