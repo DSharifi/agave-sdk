@@ -6,10 +6,10 @@
 
 use {
     agave_event_system::{
-        EventSystem, StreamConfig, event,
+        EventSystem, ProducerFactory, StreamConfig, event,
         stream_name::StreamName,
         stream_policy::StreamPolicy,
-        subscriber::{StreamSubscriber, TryRecvError, Typed},
+        subscriber::{StreamExplorer, StreamSubscriber, TryRecvError, Typed},
     },
     std::{assert_matches, path::PathBuf},
     tempfile::TempDir,
@@ -87,5 +87,28 @@ pub(crate) struct TestContext {
 impl TestContext {
     pub(crate) fn event_system_path(&self) -> PathBuf {
         self.directory.path().to_path_buf()
+    }
+
+    /// Creates [`TEST_STREAM_NAME`] with [`TEST_CONFIG`] and connects a typed subscriber to it.
+    ///
+    /// Returns the [`ProducerFactory`] rather than a producer, since producers are not `Send`.
+    pub(crate) fn create_stream_with_subscriber(
+        &self,
+    ) -> (
+        ProducerFactory<TestEvent>,
+        StreamSubscriber<Typed<TestEvent>>,
+    ) {
+        let producer_factory = self
+            .event_system
+            .create_stream(TEST_STREAM_NAME, TEST_CONFIG)
+            .unwrap();
+        let subscriber = StreamExplorer::new(self.event_system_path())
+            .available_streams()
+            .next()
+            .unwrap()
+            .try_connect_typed::<TestEvent>()
+            .unwrap();
+
+        (producer_factory, subscriber)
     }
 }
