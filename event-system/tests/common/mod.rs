@@ -18,7 +18,7 @@ use {
 pub(crate) const TEST_CONFIG: StreamConfig = StreamConfig {
     capacity: 5,
     publisher_slots: 1,
-    consumer_slots: 1,
+    subscriber_slots: 1,
 };
 
 pub(crate) const TEST_STREAM_NAME: StreamName = agave_event_system::stream_name!("test-stream");

@@ -22,7 +22,7 @@ fn event_system_is_a_no_op() {
             StreamConfig {
                 capacity: 0,
                 publisher_slots: 0,
-                consumer_slots: 0,
+                subscriber_slots: 0,
             },
         )
         .unwrap();

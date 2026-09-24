@@ -66,8 +66,8 @@ pub struct StreamConfig {
     /// This slot count is a lifetime budget. Dropping a publisher permanently retires
     /// that slot forever.
     pub publisher_slots: usize,
-    /// Maximum number of concurrent consumers.
-    pub consumer_slots: usize,
+    /// Maximum number of concurrent subscribers.
+    pub subscriber_slots: usize,
 }
 
 #[derive(Debug, Error)]

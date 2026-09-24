@@ -167,7 +167,7 @@ fn create_sealed_queue<E: Event>(
     let broadcast_config = BroadcastConfig {
         capacity: stream_config.capacity,
         producer_slots: stream_config.publisher_slots,
-        consumer_slots: stream_config.consumer_slots,
+        consumer_slots: stream_config.subscriber_slots,
     };
 
     let check_libc_result = |result: i32| {
@@ -223,8 +223,8 @@ impl<E: Event> PublisherFactory<E> {
             "gettid man page: `call is always sucessful`, meaning a positive i32 is returned",
         );
 
-        let publisher_id = ProducerId::new(thread_id);
-        let broadcast_sender = self.broadcast.producer(publisher_id).ok()?;
+        let producer_id = ProducerId::new(thread_id);
+        let broadcast_sender = self.broadcast.producer(producer_id).ok()?;
 
         let publisher = Publisher::new(broadcast_sender, stream_guard, self.stream_rule.clone());
 
@@ -332,7 +332,7 @@ mod tests {
     const TEST_CONFIG: StreamConfig = StreamConfig {
         capacity: 2,
         publisher_slots: 1,
-        consumer_slots: 1,
+        subscriber_slots: 1,
     };
 
     #[test]

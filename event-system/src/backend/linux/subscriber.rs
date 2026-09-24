@@ -356,7 +356,7 @@ mod tests {
                     StreamConfig {
                         capacity: 2,
                         publisher_slots: 1,
-                        consumer_slots: 1,
+                        subscriber_slots: 1,
                     },
                 )
                 .unwrap();

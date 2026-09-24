@@ -135,14 +135,14 @@ fn publisher_creation_respects_slot_limit(#[values(1, 2, 4)] publisher_slots: us
 }
 
 #[rstest]
-fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] consumer_slots: usize) {
+fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] subscriber_slots: usize) {
     const TEST_EVENT: TestEvent = TestEvent { value: 42 };
 
     let test_context = TestContextBuilder::new()
         .with_policy_enabling_all_streams()
         .build();
     let stream_config = StreamConfig {
-        consumer_slots,
+        subscriber_slots,
         ..TEST_CONFIG
     };
     let publisher_factory: PublisherFactory<TestEvent> = test_context
@@ -159,7 +159,7 @@ fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] consumer_slo
             .unwrap()
             .try_connect_typed::<TestEvent>()
     };
-    let mut subscribers: Vec<_> = (0..consumer_slots)
+    let mut subscribers: Vec<_> = (0..subscriber_slots)
         .map(|_| connect_subscriber().unwrap())
         .collect();
 
