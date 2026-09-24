@@ -11,7 +11,19 @@ if [[ -n ${BASE_SHA:-} && -n ${PACKAGE:-} ]]; then
   exit 1
 fi
 
+# cargo-semver-checks only supports library targets, so proc-macro crates are skipped.
+is_proc_macro() {
+  # toml exits non-zero when the key is missing, which is the common case
+  [[ "$(toml get -r "$1" lib.proc-macro 2>/dev/null)" == "true" ]]
+}
+
 if [[ -n ${PACKAGE:-} ]]; then
+  manifest="$(cargo metadata --format-version 1 --no-deps |
+    jq -r --arg name "${PACKAGE}" '.packages[] | select(.name == $name) | .manifest_path')"
+  if is_proc_macro "${manifest}"; then
+    echo "${PACKAGE}: proc-macro crate, skipping semver check"
+    exit 0
+  fi
   cargo semver-checks --package "${PACKAGE}"
   exit 0
 fi
@@ -43,6 +55,10 @@ for member in "${members[@]}"; do
   fi
 
   if [[ "${base_version}" != "${current_version}" ]]; then
+    if is_proc_macro "${manifest}"; then
+      echo "${package}: proc-macro crate, skipping semver check"
+      continue
+    fi
     changed_manifests+=("${manifest}")
   fi
 done
