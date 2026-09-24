@@ -64,13 +64,13 @@ fn toggling_stream_policy_for_live_event_system() {
     ];
 
     // initially all are off due to default policy not being replaced
-    let mut emit_event_on_all_publishers = move || {
+    let mut publish_on_all_publishers = move || {
         for publisher in publishers.iter_mut() {
-            publisher.emit_event(&TEST_EVENT).unwrap();
+            publisher.publish(&TEST_EVENT).unwrap();
         }
     };
 
-    emit_event_on_all_publishers();
+    publish_on_all_publishers();
 
     assert_is_empty([
         &mut network_packets_subscriber,
@@ -90,7 +90,7 @@ fn toggling_stream_policy_for_live_event_system() {
         &mut block_production_transaction_subscriber,
     ]);
 
-    emit_event_on_all_publishers();
+    publish_on_all_publishers();
 
     assert_received([
         &mut network_packets_subscriber,
@@ -104,7 +104,7 @@ fn toggling_stream_policy_for_live_event_system() {
             .unwrap(),
     );
 
-    emit_event_on_all_publishers();
+    publish_on_all_publishers();
     assert_is_empty([&mut network_packets_subscriber]);
     assert_received([
         &mut network_drops_subscriber,

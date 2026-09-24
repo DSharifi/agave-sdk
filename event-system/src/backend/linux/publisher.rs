@@ -2,12 +2,12 @@ use {
     crate::{
         Event,
         backend::{AtomicStreamRule, StreamGuard},
-        publisher::EmitEventError,
+        publisher::PublishError,
     },
     std::{fmt::Debug, num::NonZeroUsize, sync::Arc},
 };
 
-/// A publisher which can emit events of a specific type.
+/// Publishes events of a specific type to a stream.
 pub(crate) struct Publisher<E: Event> {
     broadcast_sender: shaq::broadcast::Producer<E::QueueCell>,
     stream_guard: Arc<StreamGuard>,
@@ -15,14 +15,14 @@ pub(crate) struct Publisher<E: Event> {
 }
 
 impl<E: Event> Publisher<E> {
-    pub(crate) fn emit_event(&mut self, event: &E) -> Result<(), EmitEventError> {
+    pub(crate) fn publish(&mut self, event: &E) -> Result<(), PublishError> {
         if !self.stream_rule.is_on() {
             return Ok(());
         }
 
         // SAFETY: write_guard is initialized below before it is dropped by going out of scope.
         let mut write_guard = unsafe { self.broadcast_sender.try_reserve_write() }
-            .ok_or(EmitEventError::FailedToSend)?;
+            .ok_or(PublishError::FailedToSend)?;
 
         let write_guard_cell = write_guard.as_mut();
         // SAFETY: the inner cell contains [u8; N] which is valid for every bit pattern.
@@ -30,19 +30,19 @@ impl<E: Event> Publisher<E> {
 
         // if serialization fails we still send incomplete bytes, as drop implementation of
         // write_guard does the sending.
-        wincode::serialize_into(cell.as_mut(), &event).map_err(EmitEventError::Serialization)?;
+        wincode::serialize_into(cell.as_mut(), &event).map_err(PublishError::Serialization)?;
 
         Ok(())
     }
 
-    /// Emits the given batch of events.
+    /// Publishes the given batch of events.
     ///
     /// # Errors
-    /// If any event in the batch fails to send, [`EmitEventError`] is returned
+    /// If any event in the batch fails to send, [`PublishError`] is returned
     /// and the remaining events in the batch are dropped.
     ///
     /// The events previous to the failing event are all sent.
-    pub(crate) fn emit_events_batched(&mut self, events: &[E]) -> Result<(), EmitEventError> {
+    pub(crate) fn publish_batch(&mut self, events: &[E]) -> Result<(), PublishError> {
         if !self.stream_rule.is_on() {
             return Ok(());
         }
@@ -53,7 +53,7 @@ impl<E: Event> Publisher<E> {
         };
         // SAFETY: write_guard cells are initialized in the loop below before it is dropped by going out of scope.
         let mut write_guard = unsafe { self.broadcast_sender.try_reserve_write_batch(event_count) }
-            .ok_or(EmitEventError::FailedToSend)?;
+            .ok_or(PublishError::FailedToSend)?;
 
         for (i, event) in events.iter().enumerate() {
             // SAFETY: i < events.len() which is the batch size
@@ -63,8 +63,7 @@ impl<E: Event> Publisher<E> {
 
             // if serialization fails we still send incomplete bytes, as drop implementation of
             // write_guard does the sending.
-            wincode::serialize_into(cell.as_mut(), &event)
-                .map_err(EmitEventError::Serialization)?;
+            wincode::serialize_into(cell.as_mut(), &event).map_err(PublishError::Serialization)?;
         }
 
         Ok(())
