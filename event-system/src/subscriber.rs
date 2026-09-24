@@ -30,12 +30,12 @@ impl StreamExplorer {
 }
 
 /// Marker for dynamically reflecting over stream messages.
-/// See [`StreamSubscriber`] for details on subscriber modes.
+/// See [`Subscriber`] for details on subscriber modes.
 #[derive(Debug)]
 pub struct Dynamic;
 
 /// Marker for decoding stream messages into a statically typed `T`.
-/// See [`StreamSubscriber`] for details on subscriber modes.
+/// See [`Subscriber`] for details on subscriber modes.
 pub struct Typed<T> {
     _marker: PhantomData<fn() -> T>,
 }
@@ -54,22 +54,22 @@ impl<T> std::fmt::Debug for Typed<T> {
 /// which lets users dynamically reflect over messages on the stream,
 /// or the [`Typed<T>`] mode which returns the T directly if the user
 /// knows what T is at compile time.
-pub struct StreamSubscriber<Mode> {
-    backend: backend::StreamSubscriber,
+pub struct Subscriber<Mode> {
+    backend: backend::Subscriber,
     mode: PhantomData<Mode>,
 }
 
-impl<Mode> std::fmt::Debug for StreamSubscriber<Mode> {
+impl<Mode> std::fmt::Debug for Subscriber<Mode> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("StreamSubscriber")
+            .debug_struct("Subscriber")
             .field("mode", &std::any::type_name::<Mode>())
             .field("backend", &self.backend)
             .finish()
     }
 }
 
-impl<Mode> StreamSubscriber<Mode> {
+impl<Mode> Subscriber<Mode> {
     /// The name of the stream the subscriber is listening on.
     pub fn stream_name(&self) -> &StreamName {
         self.backend.stream_name()
@@ -92,7 +92,7 @@ impl<Mode> StreamSubscriber<Mode> {
         self.backend.recv_timeout(timeout).map(StreamMessage::new)
     }
 
-    fn new(backend: backend::StreamSubscriber) -> Self {
+    fn new(backend: backend::Subscriber) -> Self {
         Self {
             backend,
             mode: PhantomData,
@@ -100,7 +100,7 @@ impl<Mode> StreamSubscriber<Mode> {
     }
 }
 
-/// A message received from a stream with [`StreamSubscriber::try_recv`].
+/// A message received from a stream with [`Subscriber::try_recv`].
 pub struct StreamMessage<'a, Mode> {
     backend: backend::StreamMessage<'a>,
     mode: PhantomData<Mode>,
@@ -199,8 +199,8 @@ impl AvailableStream {
     ///
     /// This method should be used over [`try_connect_typed`](Self::try_connect_typed) when you don't know what
     /// concrete rust type is sent on the stream.
-    pub fn try_connect_dynamic(self) -> Result<StreamSubscriber<Dynamic>, TryConnectError> {
-        self.0.try_connect().map(StreamSubscriber::<Dynamic>::new)
+    pub fn try_connect_dynamic(self) -> Result<Subscriber<Dynamic>, TryConnectError> {
+        self.0.try_connect().map(Subscriber::<Dynamic>::new)
     }
 
     /// Attempts to connect to the stream with static decoding of the messages into a concrete type `T`.
@@ -209,7 +209,7 @@ impl AvailableStream {
     /// [`try_connect_dynamic`](Self::try_connect_dynamic).
     pub fn try_connect_typed<T: wincode_dynamic::SchemaDynamic>(
         self,
-    ) -> Result<StreamSubscriber<Typed<T>>, TryConnectTypedError> {
+    ) -> Result<Subscriber<Typed<T>>, TryConnectTypedError> {
         let expected_schema = T::schema();
         let actual_schema = self.0.stream_schema();
 
@@ -224,7 +224,7 @@ impl AvailableStream {
 
         self.0
             .try_connect()
-            .map(StreamSubscriber::<Typed<T>>::new)
+            .map(Subscriber::<Typed<T>>::new)
             .map_err(TryConnectTypedError::Connection)
     }
 }

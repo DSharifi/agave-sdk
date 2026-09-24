@@ -9,7 +9,7 @@ use {
         EventSystem, ProducerFactory, StreamConfig, event,
         stream_name::StreamName,
         stream_policy::StreamPolicy,
-        subscriber::{StreamExplorer, StreamSubscriber, TryRecvError, Typed},
+        subscriber::{StreamExplorer, Subscriber, TryRecvError, Typed},
     },
     std::{assert_matches, path::PathBuf},
     tempfile::TempDir,
@@ -25,15 +25,13 @@ pub(crate) const TEST_STREAM_NAME: StreamName = agave_event_system::stream_name!
 
 pub(crate) const TEST_EVENT: TestEvent = TestEvent { value: 42 };
 
-pub(crate) fn assert_is_empty<const N: usize, Mode>(subscribers: [&mut StreamSubscriber<Mode>; N]) {
+pub(crate) fn assert_is_empty<const N: usize, Mode>(subscribers: [&mut Subscriber<Mode>; N]) {
     for subscriber in subscribers {
         assert_matches!(subscriber.try_recv(), Err(TryRecvError::Empty));
     }
 }
 
-pub(crate) fn assert_received<const N: usize>(
-    subscribers: [&mut StreamSubscriber<Typed<TestEvent>>; N],
-) {
+pub(crate) fn assert_received<const N: usize>(subscribers: [&mut Subscriber<Typed<TestEvent>>; N]) {
     for subscriber in subscribers {
         let received_message = subscriber.try_recv().unwrap().decode().unwrap();
         assert_eq!(received_message, TEST_EVENT);
@@ -94,10 +92,7 @@ impl TestContext {
     /// Returns the [`ProducerFactory`] rather than a producer, since producers are not `Send`.
     pub(crate) fn create_stream_with_subscriber(
         &self,
-    ) -> (
-        ProducerFactory<TestEvent>,
-        StreamSubscriber<Typed<TestEvent>>,
-    ) {
+    ) -> (ProducerFactory<TestEvent>, Subscriber<Typed<TestEvent>>) {
         let producer_factory = self
             .event_system
             .create_stream(TEST_STREAM_NAME, TEST_CONFIG)

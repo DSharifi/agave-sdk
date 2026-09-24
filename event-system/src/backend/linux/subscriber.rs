@@ -24,13 +24,13 @@ use {
 };
 
 #[derive(Debug)]
-pub(crate) struct StreamSubscriber {
+pub(crate) struct Subscriber {
     slice_consumer: shaq::broadcast::SliceConsumer,
     stream_name: StreamName,
     schema: RootSchema,
 }
 
-impl StreamSubscriber {
+impl Subscriber {
     /// The name of the stream the subscriber is listening on.
     pub(crate) fn stream_name(&self) -> &StreamName {
         &self.stream_name
@@ -116,7 +116,7 @@ impl StreamExplorer {
     }
 
     /// Yields an iterator of [`AvailableStream`]s that can be used to subscribed to streams with
-    /// [`AvailableStream::try_connect`] which returns a [`StreamSubscriber`] on success.
+    /// [`AvailableStream::try_connect`] which returns a [`Subscriber`] on success.
     pub(crate) fn available_streams(&self) -> impl Iterator<Item = AvailableStream> + '_ {
         let streams_directory = self.event_system_directory.join(STREAMS_DIRECTORY_NAME);
 
@@ -141,7 +141,7 @@ pub(crate) struct AvailableStream {
 }
 
 impl AvailableStream {
-    pub(crate) fn try_connect(self) -> Result<StreamSubscriber, TryConnectError> {
+    pub(crate) fn try_connect(self) -> Result<Subscriber, TryConnectError> {
         // SAFETY:
         // The producer is always sending byte arrays which satisfies `SliceConsumer's full-byte initialization requirement.
         let slice_consumer_result = unsafe { self.broadcast_handle.slice_consumer() };
@@ -150,7 +150,7 @@ impl AvailableStream {
             return Err(TryConnectError::SubscriberSlotsExhausted);
         };
 
-        Ok(StreamSubscriber {
+        Ok(Subscriber {
             slice_consumer,
             stream_name: self.stream_name,
             schema: self.schema,
