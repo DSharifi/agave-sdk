@@ -54,7 +54,7 @@ impl<D: TransactionData> TransactionView<false, D> {
     /// [`Self::data`].
     pub fn try_new_unsanitized_from_prefix(data: D) -> Result<(Self, usize)> {
         let frame = TransactionFrame::try_new_from_prefix(data.data())?;
-        let consumed_len = usize::from(frame.data_len());
+        let consumed_len = usize::from(frame.data_len);
         Ok((Self { data, frame }, consumed_len))
     }
 
@@ -95,61 +95,61 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
     /// Return the number of signatures in the transaction.
     #[inline]
     pub fn num_signatures(&self) -> u8 {
-        self.frame.num_signatures()
+        self.frame.signature.num_signatures
     }
 
     /// Return the version of the transaction.
     #[inline]
     pub fn version(&self) -> TransactionVersion {
-        self.frame.version()
+        self.frame.message.version()
     }
 
     /// Return the number of required signatures in the transaction.
     #[inline]
     pub fn num_required_signatures(&self) -> u8 {
-        self.frame.num_required_signatures()
+        self.frame.message.num_required_signatures()
     }
 
     /// Return the number of readonly signed static accounts in the transaction.
     #[inline]
     pub fn num_readonly_signed_static_accounts(&self) -> u8 {
-        self.frame.num_readonly_signed_static_accounts()
+        self.frame.message.num_readonly_signed_static_accounts()
     }
 
     /// Return the number of readonly unsigned static accounts in the transaction.
     #[inline]
     pub fn num_readonly_unsigned_static_accounts(&self) -> u8 {
-        self.frame.num_readonly_unsigned_static_accounts()
+        self.frame.message.num_readonly_unsigned_static_accounts()
     }
 
     /// Return the number of static account keys in the transaction.
     #[inline]
     pub fn num_static_account_keys(&self) -> u8 {
-        self.frame.num_static_account_keys()
+        self.frame.message.num_static_account_keys()
     }
 
     /// Return the number of instructions in the transaction.
     #[inline]
     pub fn num_instructions(&self) -> u16 {
-        self.frame.num_instructions()
+        self.frame.message.num_instructions()
     }
 
     /// Return the number of address table lookups in the transaction.
     #[inline]
     pub fn num_address_table_lookups(&self) -> u8 {
-        self.frame.num_address_table_lookups()
+        self.frame.message.num_address_table_lookups()
     }
 
     /// Return the number of writable lookup accounts in the transaction.
     #[inline]
     pub fn total_writable_lookup_accounts(&self) -> u16 {
-        self.frame.total_writable_lookup_accounts()
+        self.frame.message.total_writable_lookup_accounts()
     }
 
     /// Return the number of readonly lookup accounts in the transaction.
     #[inline]
     pub fn total_readonly_lookup_accounts(&self) -> u16 {
-        self.frame.total_readonly_lookup_accounts()
+        self.frame.message.total_readonly_lookup_accounts()
     }
 
     /// Return the slice of signatures in the transaction.
@@ -157,7 +157,7 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
     pub fn signatures(&self) -> &[Signature] {
         let data = self.data();
         // SAFETY: `frame` was created from `data`.
-        unsafe { self.frame.signatures(data) }
+        unsafe { self.frame.signature.signatures(data) }
     }
 
     /// Return the slice of static account keys in the transaction.
@@ -165,7 +165,7 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
     pub fn static_account_keys(&self) -> &[Pubkey] {
         let data = self.data();
         // SAFETY: `frame` was created from `data`.
-        unsafe { self.frame.static_account_keys(data) }
+        unsafe { self.frame.message.static_account_keys(data) }
     }
 
     /// Return the recent blockhash in the transaction.
@@ -173,7 +173,7 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
     pub fn recent_blockhash(&self) -> &Hash {
         let data = self.data();
         // SAFETY: `frame` was created from `data`.
-        unsafe { self.frame.recent_blockhash(data) }
+        unsafe { self.frame.message.recent_blockhash(data) }
     }
 
     /// Return an iterator over the instructions in the transaction.
@@ -181,7 +181,7 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
     pub fn instructions_iter(&self) -> InstructionsIterator<'_> {
         let data = self.data();
         // SAFETY: `frame` was created from `data`.
-        unsafe { self.frame.instructions_iter(data) }
+        unsafe { self.frame.message.instructions_iter(data) }
     }
 
     /// Return an iterator over the address table lookups in the transaction.
@@ -189,13 +189,13 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
     pub fn address_table_lookup_iter(&self) -> AddressTableLookupIterator<'_> {
         let data = self.data();
         // SAFETY: `frame` was created from `data`.
-        unsafe { self.frame.address_table_lookup_iter(data) }
+        unsafe { self.frame.message.address_table_lookup_iter(data) }
     }
 
     /// Return Some(TransactionConfigView) for V1, None for legacy/V0
     #[inline]
     pub fn transaction_config(&self) -> Option<TransactionConfigView<'_>> {
-        let transaction_config_frame = self.frame.transaction_config_frame();
+        let transaction_config_frame = self.frame.message.transaction_config_frame();
         transaction_config_frame
             .is_present()
             .then_some(TransactionConfigView {
@@ -211,7 +211,7 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
     /// [`Self::inner_data`].
     #[inline]
     pub fn data(&self) -> &[u8] {
-        let data_length: usize = self.frame.data_len().into();
+        let data_length: usize = self.frame.data_len.into();
         &self.data.data()[..data_length]
     }
 
@@ -219,7 +219,7 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
     /// This does not include the signatures.
     #[inline]
     pub fn message_data(&self) -> &[u8] {
-        let (start, end) = self.frame.message_range();
+        let (start, end) = self.frame.message.message_range();
         &self.data()[usize::from(start)..usize::from(end)]
     }
 
@@ -597,8 +597,8 @@ mod tests {
         // For v1, message_data should stop before the signatures region.
         assert!(message_data.len() < bytes.len());
 
-        let full_message = &bytes
-            [usize::from(view.frame.message_offset())..usize::from(view.frame.signatures_offset())];
+        let full_message = &bytes[usize::from(view.frame.message.message_header.offset)
+            ..usize::from(view.frame.signature.offset)];
         assert_eq!(message_data, full_message);
     }
 
