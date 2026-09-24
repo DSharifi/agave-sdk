@@ -1,12 +1,14 @@
 [package]
 name = "agave-event-system-derive"
+description = "Derive macros for the `agave-event-system` events that are published."
+documentation = "https://docs.rs/agave-event-system-derive"
 version = "0.2.0"
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-rust-version.workspace = true
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
