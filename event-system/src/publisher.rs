@@ -3,7 +3,7 @@ use {
     std::{fmt::Debug, marker::PhantomData, rc::Rc},
 };
 
-/// A publisher which can emit events of a specific type.
+/// Publishes events of a specific type to a stream.
 ///
 /// [`Publisher<T>`] is [`!Send`](Send) + [`!Sync`](Sync), as a publisher is associated
 /// with a thread for its entire lifetime.
@@ -14,19 +14,19 @@ pub struct Publisher<E: Event> {
 }
 
 impl<E: Event> Publisher<E> {
-    pub fn emit_event(&mut self, event: &E) -> Result<(), EmitEventError> {
-        self.inner.emit_event(event)
+    pub fn publish(&mut self, event: &E) -> Result<(), PublishError> {
+        self.inner.publish(event)
     }
 
-    /// Emits the given batch of events on the stream.
+    /// Publishes the given batch of events on the stream.
     ///
     /// # Errors
-    /// If any event in the batch fails to send, [`EmitEventError`] is returned
+    /// If any event in the batch fails to send, [`PublishError`] is returned
     /// and the remaining events in the batch are dropped.
     ///
     /// The events previous to the failing event are all sent.
-    pub fn emit_events_batched(&mut self, events: &[E]) -> Result<(), EmitEventError> {
-        self.inner.emit_events_batched(events)
+    pub fn publish_batch(&mut self, events: &[E]) -> Result<(), PublishError> {
+        self.inner.publish_batch(events)
     }
 
     pub(crate) fn new(inner: backend::Publisher<E>) -> Self {
@@ -44,7 +44,7 @@ impl<E: Event> Debug for Publisher<E> {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum EmitEventError {
+pub enum PublishError {
     #[error("Failed to serialize the event")]
     Serialization(wincode::WriteError),
     #[error("Failed to send the event. Back-pressured by event subscribers.")]

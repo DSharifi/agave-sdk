@@ -2,7 +2,7 @@ use {
     crate::{
         Event,
         event_system::{CreateEventSystemError, CreateStreamError, StreamConfig},
-        publisher::EmitEventError,
+        publisher::PublishError,
         stream_name::StreamName,
         stream_policy::StreamPolicy,
         subscriber::{RecvTimeoutError, TryConnectError, TryRecvError},
@@ -27,11 +27,11 @@ impl<E> Debug for Publisher<E> {
 }
 
 impl<E> Publisher<E> {
-    pub(crate) fn emit_event(&mut self, _event: &E) -> Result<(), EmitEventError> {
+    pub(crate) fn publish(&mut self, _event: &E) -> Result<(), PublishError> {
         Ok(())
     }
 
-    pub(crate) fn emit_events_batched(&mut self, _events: &[E]) -> Result<(), EmitEventError> {
+    pub(crate) fn publish_batch(&mut self, _events: &[E]) -> Result<(), PublishError> {
         Ok(())
     }
 }

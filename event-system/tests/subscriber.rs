@@ -13,7 +13,7 @@ use {
 };
 
 #[rstest]
-fn recv_timeout_errors_when_no_message_is_emitted(
+fn recv_timeout_errors_when_no_message_is_published(
     #[values(Duration::ZERO, Duration::from_micros(10))] timeout: Duration,
 ) {
     let test_context = TestContextBuilder::new()
@@ -33,7 +33,7 @@ fn recv_timeout_errors_when_no_message_is_emitted(
 }
 
 #[test]
-fn recv_timeout_returns_already_emitted_message() {
+fn recv_timeout_returns_already_published_message() {
     const LONG_DURATION: Duration = Duration::from_secs(10);
 
     let test_context = TestContextBuilder::new()
@@ -41,7 +41,7 @@ fn recv_timeout_returns_already_emitted_message() {
         .build();
     let (publisher_factory, mut subscriber) = test_context.create_stream_with_subscriber();
     let mut publisher = publisher_factory.try_create_publisher().unwrap();
-    publisher.emit_event(&TEST_EVENT).unwrap();
+    publisher.publish(&TEST_EVENT).unwrap();
 
     let received_event = subscriber
         .recv_timeout(LONG_DURATION)

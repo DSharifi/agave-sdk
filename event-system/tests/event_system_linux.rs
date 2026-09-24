@@ -170,7 +170,7 @@ fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] subscriber_s
         ))
     );
 
-    publisher.emit_event(&TEST_EVENT).unwrap();
+    publisher.publish(&TEST_EVENT).unwrap();
     for subscriber in &mut subscribers {
         assert_eq!(&TEST_STREAM_NAME, subscriber.stream_name());
         assert_eq!("TestEvent", subscriber.type_name());
@@ -204,7 +204,7 @@ fn dynamic_subscriber_can_connect_and_decode_events<E: Event>(
     let available_stream = available_streams.pop().unwrap();
     let mut subscriber = available_stream.try_connect_dynamic().unwrap();
 
-    publisher.emit_event(&event).unwrap();
+    publisher.publish(&event).unwrap();
     let received_message = subscriber.try_recv().unwrap();
     let (variant_name, mut fields) = match received_message.decode().unwrap() {
         DecodedMessage::Struct { fields } => (None, fields),

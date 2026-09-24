@@ -163,12 +163,12 @@ impl<'a> StreamMessage<'a, Dynamic> {
 pub struct PublisherMetadata<'a>(backend::PublisherMetadata<'a>);
 
 impl PublisherMetadata<'_> {
-    /// The lane of the publisher that emitted this event.
+    /// The lane of the publisher that sent this event.
     pub fn lane(&self) -> usize {
         self.0.lane()
     }
 
-    /// The thread id of the publisher that emitted the event.
+    /// The thread id of the publisher that sent the event.
     pub fn thread_id(&self) -> u64 {
         self.0.thread_id()
     }

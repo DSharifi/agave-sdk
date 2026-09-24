@@ -6,7 +6,7 @@ const PREFIX_RULE_ASSIGNMENT: &str = "=";
 const ON: &str = "on";
 const OFF: &str = "off";
 
-/// Configures which streams in an [`EventSystem`](crate::EventSystem) can emit events.
+/// Configures which streams in an [`EventSystem`](crate::EventSystem) can publish events.
 ///
 /// # Enabling events
 ///
@@ -33,7 +33,7 @@ const OFF: &str = "off";
 /// `network.repair`, and `network.repair.requests`. Prefixes are matched
 /// case-sensitively. An empty prefix sets the default rule, so `=off` means `off`.
 ///
-/// The **rule** controls whether matching streams can emit events:
+/// The **rule** controls whether matching streams can publish events:
 ///
 /// - `on` enables events.
 /// - `off` disables events.
@@ -78,7 +78,7 @@ const OFF: &str = "off";
 ///
 /// # Disabled streams
 ///
-/// Events emitted by a [`Publisher`](crate::publisher::Publisher) on a disabled
+/// Events published by a [`Publisher`](crate::publisher::Publisher) on a disabled
 /// stream are dropped. Its [`Subscriber`](crate::subscriber::Subscriber)s
 /// do not receive those events, and enabling the stream later does not replay them.
 #[derive(Debug, PartialEq, Eq, Default)]
