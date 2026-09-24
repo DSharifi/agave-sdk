@@ -117,9 +117,9 @@ impl<Mode> std::fmt::Debug for StreamMessage<'_, Mode> {
 }
 
 impl<'a, Mode> StreamMessage<'a, Mode> {
-    /// [`ProducerMetadata`] of the producer of this message.
-    pub fn producer_metadata(&self) -> ProducerMetadata<'_> {
-        ProducerMetadata(self.backend.producer_metadata())
+    /// [`PublisherMetadata`] of the publisher of this message.
+    pub fn publisher_metadata(&self) -> PublisherMetadata<'_> {
+        PublisherMetadata(self.backend.publisher_metadata())
     }
 
     fn new(backend: backend::StreamMessage<'a>) -> Self {
@@ -158,22 +158,22 @@ impl<'a> StreamMessage<'a, Dynamic> {
     }
 }
 
-/// Metadata of the [`Producer`](crate::producer::Producer) lane that a [`StreamMessage`] was published on.
+/// Metadata of the [`Publisher`](crate::publisher::Publisher) lane that a [`StreamMessage`] was published on.
 #[derive(Clone, Copy, Debug)]
-pub struct ProducerMetadata<'a>(backend::ProducerMetadata<'a>);
+pub struct PublisherMetadata<'a>(backend::PublisherMetadata<'a>);
 
-impl ProducerMetadata<'_> {
-    /// The lane of the producer that emitted this event.
+impl PublisherMetadata<'_> {
+    /// The lane of the publisher that emitted this event.
     pub fn lane(&self) -> usize {
         self.0.lane()
     }
 
-    /// The thread id of the producer that emitted the event.
+    /// The thread id of the publisher that emitted the event.
     pub fn thread_id(&self) -> u64 {
         self.0.thread_id()
     }
 
-    /// The number of events the producer could not publish on this lane because
+    /// The number of events the publisher could not publish on this lane because
     /// subscribers did not consume them fast enough.
     pub fn rejected_items(&self) -> u64 {
         self.0.rejected_items()

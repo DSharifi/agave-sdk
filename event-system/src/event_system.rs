@@ -1,6 +1,6 @@
 use {
     crate::{
-        Event, ProducerFactory,
+        Event, PublisherFactory,
         backend::{self},
         stream_name::StreamName,
         stream_policy::StreamPolicy,
@@ -29,15 +29,15 @@ impl EventSystem {
     }
 
     /// Creates a stream named `stream_name` for event type `E`
-    /// and returns its [`ProducerFactory`].
+    /// and returns its [`PublisherFactory`].
     pub fn create_stream<E: Event>(
         &self,
         stream_name: StreamName,
         stream_config: StreamConfig,
-    ) -> Result<ProducerFactory<E>, CreateStreamError> {
+    ) -> Result<PublisherFactory<E>, CreateStreamError> {
         self.backend
             .create_stream::<E>(stream_name, stream_config)
-            .map(ProducerFactory::new)
+            .map(PublisherFactory::new)
     }
 
     /// Applies the given [`StreamPolicy`] on the streams created by this
@@ -59,15 +59,15 @@ impl std::fmt::Debug for EventSystem {
 /// Capacity and participant limits for an event stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StreamConfig {
-    /// Number of events retained in each producer queue.
+    /// Number of events retained in each publisher queue.
     pub capacity: usize,
-    /// Maximum number of producers that can be created for the stream.
+    /// Maximum number of publishers that can be created for the stream.
     ///
-    /// This slot count is a lifetime budget. Dropping a producer permanently retires
+    /// This slot count is a lifetime budget. Dropping a publisher permanently retires
     /// that slot forever.
-    pub producer_slots: usize,
-    /// Maximum number of concurrent consumers.
-    pub consumer_slots: usize,
+    pub publisher_slots: usize,
+    /// Maximum number of concurrent subscribers.
+    pub subscriber_slots: usize,
 }
 
 #[derive(Debug, Error)]

@@ -81,15 +81,15 @@ impl<'a> StreamMessage<'a> {
         self.read_guard.as_slice()
     }
 
-    pub(crate) fn producer_metadata(&self) -> ProducerMetadata<'_> {
-        ProducerMetadata(self.read_guard.lane_metadata())
+    pub(crate) fn publisher_metadata(&self) -> PublisherMetadata<'_> {
+        PublisherMetadata(self.read_guard.lane_metadata())
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ProducerMetadata<'a>(LaneMetadata<'a>);
+pub(crate) struct PublisherMetadata<'a>(LaneMetadata<'a>);
 
-impl ProducerMetadata<'_> {
+impl PublisherMetadata<'_> {
     pub(crate) fn lane(&self) -> usize {
         self.0.lane()
     }
@@ -122,7 +122,7 @@ impl StreamExplorer {
 
         let read_streams_directory = std::fs::read_dir(streams_directory)
             // returns an empty iterator if `read_dir` errors. This can happen
-            // if the subscriber is launched _before_ the producer side has created
+            // if the subscriber is launched _before_ the publisher side has created
             // the event system.
             .into_iter()
             .flatten();
@@ -143,7 +143,7 @@ pub(crate) struct AvailableStream {
 impl AvailableStream {
     pub(crate) fn try_connect(self) -> Result<Subscriber, TryConnectError> {
         // SAFETY:
-        // The producer is always sending byte arrays which satisfies `SliceConsumer's full-byte initialization requirement.
+        // The publisher is always sending byte arrays which satisfies `SliceConsumer's full-byte initialization requirement.
         let slice_consumer_result = unsafe { self.broadcast_handle.slice_consumer() };
 
         let Ok(slice_consumer) = slice_consumer_result else {
@@ -187,7 +187,7 @@ impl AvailableStream {
         // - Open B's queue, which passes its identifier check.
         // - A's schema is paired with B's queue.
         //
-        // This lookup technique works because each new stream, even name reuse, causes producers
+        // This lookup technique works because each new stream, even name reuse, causes publishers
         // to first create a new directory object. Existing directories are never mutated.
         let mut stream_directory = Dir::open(
             &stream_directory.path(),
@@ -257,7 +257,7 @@ fn open_queue(
 
     let actual_broadcast_identifier = broadcast_handle.queue_identifier();
 
-    // The producer's descriptor number may be reused for another queue
+    // The publisher's descriptor number may be reused for another queue
     // before opening the queue's /proc symlink above.
     if expected_broadcast_identifier != actual_broadcast_identifier {
         return Err(CreateAvailableStreamError::QueueIdentifierMismatch {
@@ -293,7 +293,7 @@ enum CreateAvailableStreamError {
     #[error("queue identifier mismatch: expected {expected}, found {actual}")]
     QueueIdentifierMismatch { expected: u64, actual: u64 },
 
-    // these errors should only happen if producer implementation is incorrect
+    // these errors should only happen if publisher implementation is incorrect
     // or the user manually tampered with the event directory filesystem
     //
     #[error("failed to deserialize the stream schema")]
@@ -319,7 +319,7 @@ mod tests {
             CreateAvailableStreamError, Dir, Mode, OFlag, QUEUE_FILE_NAME_PREFIX, REQUIRED_SEALS,
             STREAMS_DIRECTORY_NAME, open_queue,
         },
-        crate::{EventSystem, ProducerFactory, StreamConfig, event, stream_name},
+        crate::{EventSystem, PublisherFactory, StreamConfig, event, stream_name},
         nix::{
             fcntl::{FcntlArg, SealFlag, fcntl},
             sys::memfd::{MFdFlags, memfd_create},
@@ -342,7 +342,7 @@ mod tests {
     struct TestStream {
         path: PathBuf,
         queue_path: PathBuf,
-        _producer_factory: ProducerFactory<TestEvent>,
+        _publisher_factory: PublisherFactory<TestEvent>,
         _directory: TempDir,
     }
 
@@ -350,13 +350,13 @@ mod tests {
         fn new() -> Self {
             let directory = TempDir::new().unwrap();
             let event_system = EventSystem::new(directory.path()).unwrap();
-            let producer_factory = event_system
+            let publisher_factory = event_system
                 .create_stream::<TestEvent>(
                     stream_name!("test-stream"),
                     StreamConfig {
                         capacity: 2,
-                        producer_slots: 1,
-                        consumer_slots: 1,
+                        publisher_slots: 1,
+                        subscriber_slots: 1,
                     },
                 )
                 .unwrap();
@@ -379,7 +379,7 @@ mod tests {
             Self {
                 path,
                 queue_path,
-                _producer_factory: producer_factory,
+                _publisher_factory: publisher_factory,
                 _directory: directory,
             }
         }

@@ -2,19 +2,19 @@ use {
     crate::{
         Event,
         backend::{AtomicStreamRule, StreamGuard},
-        producer::EmitEventError,
+        publisher::EmitEventError,
     },
     std::{fmt::Debug, num::NonZeroUsize, sync::Arc},
 };
 
-/// A producer which can emit events of a specific type.
-pub(crate) struct Producer<E: Event> {
+/// A publisher which can emit events of a specific type.
+pub(crate) struct Publisher<E: Event> {
     broadcast_sender: shaq::broadcast::Producer<E::QueueCell>,
     stream_guard: Arc<StreamGuard>,
     stream_rule: Arc<AtomicStreamRule>,
 }
 
-impl<E: Event> Producer<E> {
+impl<E: Event> Publisher<E> {
     pub(crate) fn emit_event(&mut self, event: &E) -> Result<(), EmitEventError> {
         if !self.stream_rule.is_on() {
             return Ok(());
@@ -71,7 +71,7 @@ impl<E: Event> Producer<E> {
     }
 }
 
-impl<E: Event> Producer<E> {
+impl<E: Event> Publisher<E> {
     pub(super) fn new(
         broadcast_sender: shaq::broadcast::Producer<E::QueueCell>,
         stream_guard: Arc<StreamGuard>,
@@ -84,9 +84,9 @@ impl<E: Event> Producer<E> {
         }
     }
 }
-impl<E: Event> Debug for Producer<E> {
+impl<E: Event> Debug for Publisher<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Producer")
+        f.debug_struct("Publisher")
             .field("broadcast_sender", &self.broadcast_sender)
             .field("stream_guard", &self.stream_guard)
             .finish()

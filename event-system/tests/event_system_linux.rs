@@ -5,7 +5,7 @@ mod common;
 use {
     crate::common::TestContextBuilder,
     agave_event_system::{
-        CreateStreamError, Event, EventSystem, ProducerFactory, StreamConfig,
+        CreateStreamError, Event, EventSystem, PublisherFactory, StreamConfig,
         stream_name::StreamName,
         subscriber::{
             self, AvailableStream, DecodedMessage, TryConnectError, TryConnectTypedError,
@@ -61,7 +61,7 @@ fn create_stream_reserves_names_only_after_success() {
             .create_stream::<TestEvent>(REUSED_STREAM_NAME, invalid_config),
         Err(CreateStreamError::Queue(_))
     );
-    let _producer_factory = test_context
+    let _publisher_factory = test_context
         .event_system
         .create_stream::<TestEvent>(REUSED_STREAM_NAME, TEST_CONFIG)
         .expect("test-events is unused stream name as it failed above");
@@ -100,56 +100,56 @@ fn stream_can_be_recreated_after_dropping_all_handles() {
     drop(factory_2);
     assert_matches!(
         event_system.create_stream::<TestEvent>(REUSED_STREAM_NAME, TEST_CONFIG),
-        Ok(ProducerFactory { .. }),
+        Ok(PublisherFactory { .. }),
         "all factory handles are dropped, recycling the stream name to be reused."
     );
 }
 
 #[rstest]
-fn producer_creation_respects_slot_limit(#[values(1, 2, 4)] producer_slots: usize) {
+fn publisher_creation_respects_slot_limit(#[values(1, 2, 4)] publisher_slots: usize) {
     let test_context = TestContextBuilder::new()
         .with_policy_enabling_all_streams()
         .build();
 
     let stream_config = StreamConfig {
-        producer_slots,
+        publisher_slots,
         ..TEST_CONFIG
     };
 
-    let producer_factory: ProducerFactory<TestEvent> = test_context
+    let publisher_factory: PublisherFactory<TestEvent> = test_context
         .event_system
         .create_stream(TEST_STREAM_NAME, stream_config)
         .unwrap();
 
-    for _ in 0..producer_slots {
-        producer_factory
-            .try_create_producer()
-            .expect("producer slot is available");
+    for _ in 0..publisher_slots {
+        publisher_factory
+            .try_create_publisher()
+            .expect("publisher slot is available");
     }
 
     assert_matches!(
-        producer_factory.try_create_producer(),
+        publisher_factory.try_create_publisher(),
         None,
-        "producer slots are exhausted"
+        "publisher slots are exhausted"
     );
 }
 
 #[rstest]
-fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] consumer_slots: usize) {
+fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] subscriber_slots: usize) {
     const TEST_EVENT: TestEvent = TestEvent { value: 42 };
 
     let test_context = TestContextBuilder::new()
         .with_policy_enabling_all_streams()
         .build();
     let stream_config = StreamConfig {
-        consumer_slots,
+        subscriber_slots,
         ..TEST_CONFIG
     };
-    let producer_factory: ProducerFactory<TestEvent> = test_context
+    let publisher_factory: PublisherFactory<TestEvent> = test_context
         .event_system
         .create_stream(TEST_STREAM_NAME, stream_config)
         .unwrap();
-    let mut producer = producer_factory.try_create_producer().unwrap();
+    let mut publisher = publisher_factory.try_create_publisher().unwrap();
 
     let explorer = subscriber::StreamExplorer::new(test_context.event_system_path());
     let connect_subscriber = || {
@@ -159,7 +159,7 @@ fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] consumer_slo
             .unwrap()
             .try_connect_typed::<TestEvent>()
     };
-    let mut subscribers: Vec<_> = (0..consumer_slots)
+    let mut subscribers: Vec<_> = (0..subscriber_slots)
         .map(|_| connect_subscriber().unwrap())
         .collect();
 
@@ -170,7 +170,7 @@ fn typed_subscribers_can_connect_and_receive_events(#[values(1, 2)] consumer_slo
         ))
     );
 
-    producer.emit_event(&TEST_EVENT).unwrap();
+    publisher.emit_event(&TEST_EVENT).unwrap();
     for subscriber in &mut subscribers {
         assert_eq!(&TEST_STREAM_NAME, subscriber.stream_name());
         assert_eq!("TestEvent", subscriber.type_name());
@@ -190,12 +190,12 @@ fn dynamic_subscriber_can_connect_and_decode_events<E: Event>(
     let test_context = TestContextBuilder::new()
         .with_policy_enabling_all_streams()
         .build();
-    let producer_factory: ProducerFactory<E> = test_context
+    let publisher_factory: PublisherFactory<E> = test_context
         .event_system
         .create_stream(TEST_STREAM_NAME, TEST_CONFIG)
         .unwrap();
 
-    let mut producer = producer_factory.try_create_producer().unwrap();
+    let mut publisher = publisher_factory.try_create_publisher().unwrap();
 
     let subscriber = subscriber::StreamExplorer::new(test_context.event_system_path());
     let mut available_streams: Vec<AvailableStream> = subscriber.available_streams().collect();
@@ -204,7 +204,7 @@ fn dynamic_subscriber_can_connect_and_decode_events<E: Event>(
     let available_stream = available_streams.pop().unwrap();
     let mut subscriber = available_stream.try_connect_dynamic().unwrap();
 
-    producer.emit_event(&event).unwrap();
+    publisher.emit_event(&event).unwrap();
     let received_message = subscriber.try_recv().unwrap();
     let (variant_name, mut fields) = match received_message.decode().unwrap() {
         DecodedMessage::Struct { fields } => (None, fields),

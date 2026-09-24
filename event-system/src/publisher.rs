@@ -3,17 +3,17 @@ use {
     std::{fmt::Debug, marker::PhantomData, rc::Rc},
 };
 
-/// A producer which can emit events of a specific type.
+/// A publisher which can emit events of a specific type.
 ///
-/// [`Producer<T>`] is [`!Send`](Send) + [`!Sync`](Sync), as a producer is associated
+/// [`Publisher<T>`] is [`!Send`](Send) + [`!Sync`](Sync), as a publisher is associated
 /// with a thread for its entire lifetime.
-pub struct Producer<E: Event> {
-    inner: backend::Producer<E>,
-    //  `Rc` is !Send + !Sync, which makes Producer<E> also neither
+pub struct Publisher<E: Event> {
+    inner: backend::Publisher<E>,
+    //  `Rc` is !Send + !Sync, which makes Publisher<E> also neither
     _not_send_or_sync: PhantomData<Rc<()>>,
 }
 
-impl<E: Event> Producer<E> {
+impl<E: Event> Publisher<E> {
     pub fn emit_event(&mut self, event: &E) -> Result<(), EmitEventError> {
         self.inner.emit_event(event)
     }
@@ -29,7 +29,7 @@ impl<E: Event> Producer<E> {
         self.inner.emit_events_batched(events)
     }
 
-    pub(crate) fn new(inner: backend::Producer<E>) -> Self {
+    pub(crate) fn new(inner: backend::Publisher<E>) -> Self {
         Self {
             inner,
             _not_send_or_sync: PhantomData,
@@ -37,7 +37,7 @@ impl<E: Event> Producer<E> {
     }
 }
 
-impl<E: Event> Debug for Producer<E> {
+impl<E: Event> Debug for Publisher<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(&self.inner, f)
     }

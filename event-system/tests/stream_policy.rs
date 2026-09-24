@@ -21,19 +21,19 @@ mod common;
 fn toggling_stream_policy_for_live_event_system() {
     let test_context = TestContextBuilder::new().build();
 
-    let create_producer = |stream_name| {
+    let create_publisher = |stream_name| {
         test_context
             .event_system
             .create_stream(stream_name, TEST_CONFIG)
             .unwrap()
-            .try_create_producer()
+            .try_create_publisher()
             .unwrap()
     };
 
-    let network_packets_producer = create_producer(stream_name!("network.packets"));
-    let network_drops_producer = create_producer(stream_name!("network.drops"));
-    let block_production_transaction_producer =
-        create_producer(stream_name!("block-production.transaction"));
+    let network_packets_publisher = create_publisher(stream_name!("network.packets"));
+    let network_drops_publisher = create_publisher(stream_name!("network.drops"));
+    let block_production_transaction_publisher =
+        create_publisher(stream_name!("block-production.transaction"));
 
     let subscriber = subscriber::StreamExplorer::new(test_context.event_system_path());
     let mut available_streams: Vec<AvailableStream> =
@@ -57,20 +57,20 @@ fn toggling_stream_policy_for_live_event_system() {
         "sanity check failed that no other streams were created"
     );
 
-    let mut producers = [
-        network_packets_producer,
-        network_drops_producer,
-        block_production_transaction_producer,
+    let mut publishers = [
+        network_packets_publisher,
+        network_drops_publisher,
+        block_production_transaction_publisher,
     ];
 
     // initially all are off due to default policy not being replaced
-    let mut emit_event_on_all_producers = move || {
-        for producer in producers.iter_mut() {
-            producer.emit_event(&TEST_EVENT).unwrap();
+    let mut emit_event_on_all_publishers = move || {
+        for publisher in publishers.iter_mut() {
+            publisher.emit_event(&TEST_EVENT).unwrap();
         }
     };
 
-    emit_event_on_all_producers();
+    emit_event_on_all_publishers();
 
     assert_is_empty([
         &mut network_packets_subscriber,
@@ -90,7 +90,7 @@ fn toggling_stream_policy_for_live_event_system() {
         &mut block_production_transaction_subscriber,
     ]);
 
-    emit_event_on_all_producers();
+    emit_event_on_all_publishers();
 
     assert_received([
         &mut network_packets_subscriber,
@@ -104,7 +104,7 @@ fn toggling_stream_policy_for_live_event_system() {
             .unwrap(),
     );
 
-    emit_event_on_all_producers();
+    emit_event_on_all_publishers();
     assert_is_empty([&mut network_packets_subscriber]);
     assert_received([
         &mut network_drops_subscriber,

@@ -2,7 +2,7 @@ use {
     crate::{
         Event,
         event_system::{CreateEventSystemError, CreateStreamError, StreamConfig},
-        producer::EmitEventError,
+        publisher::EmitEventError,
         stream_name::StreamName,
         stream_policy::StreamPolicy,
         subscriber::{RecvTimeoutError, TryConnectError, TryRecvError},
@@ -16,17 +16,17 @@ use {
     wincode_dynamic::RootSchema,
 };
 
-pub(crate) struct Producer<E> {
+pub(crate) struct Publisher<E> {
     _data: PhantomData<E>,
 }
 
-impl<E> Debug for Producer<E> {
+impl<E> Debug for Publisher<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Producer").finish()
+        f.debug_struct("Publisher").finish()
     }
 }
 
-impl<E> Producer<E> {
+impl<E> Publisher<E> {
     pub(crate) fn emit_event(&mut self, _event: &E) -> Result<(), EmitEventError> {
         Ok(())
     }
@@ -54,38 +54,38 @@ impl EventSystem {
         &self,
         _stream_name: StreamName,
         _stream_config: StreamConfig,
-    ) -> Result<ProducerFactory<E>, CreateStreamError> {
-        Ok(ProducerFactory::new())
+    ) -> Result<PublisherFactory<E>, CreateStreamError> {
+        Ok(PublisherFactory::new())
     }
 
     pub(crate) fn set_stream_policy(&self, _new_stream_policy: StreamPolicy) {}
 }
 
-pub(crate) struct ProducerFactory<E: Event> {
+pub(crate) struct PublisherFactory<E: Event> {
     _queue_cell: PhantomData<E::QueueCell>,
 }
 
-impl<E: Event> ProducerFactory<E> {
+impl<E: Event> PublisherFactory<E> {
     fn new() -> Self {
         Self {
             _queue_cell: PhantomData,
         }
     }
 
-    pub(crate) fn try_create_producer(&self) -> Option<Producer<E>> {
-        Some(Producer { _data: PhantomData })
+    pub(crate) fn try_create_publisher(&self) -> Option<Publisher<E>> {
+        Some(Publisher { _data: PhantomData })
     }
 }
 
-impl<E: Event> Clone for ProducerFactory<E> {
+impl<E: Event> Clone for PublisherFactory<E> {
     fn clone(&self) -> Self {
         Self::new()
     }
 }
 
-impl<E: Event> std::fmt::Debug for ProducerFactory<E> {
+impl<E: Event> std::fmt::Debug for PublisherFactory<E> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("ProducerFactory").finish()
+        formatter.debug_struct("PublisherFactory").finish()
     }
 }
 
@@ -145,17 +145,17 @@ impl<'a> StreamMessage<'a> {
         self.payload
     }
 
-    pub(crate) fn producer_metadata(&self) -> ProducerMetadata<'_> {
-        ProducerMetadata(PhantomData)
+    pub(crate) fn publisher_metadata(&self) -> PublisherMetadata<'_> {
+        PublisherMetadata(PhantomData)
     }
 }
 
 // 'a lifetime is there to match the `linux` backend, where the metadata is
 // borrowed from the queue's shared memory.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ProducerMetadata<'a>(PhantomData<&'a ()>);
+pub(crate) struct PublisherMetadata<'a>(PhantomData<&'a ()>);
 
-impl ProducerMetadata<'_> {
+impl PublisherMetadata<'_> {
     pub(crate) fn lane(&self) -> usize {
         0
     }
