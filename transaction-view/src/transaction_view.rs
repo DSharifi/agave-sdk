@@ -531,6 +531,17 @@ mod tests {
         verify_transaction_view_frame(&multiple_transfers());
     }
 
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_transaction_view_size() {
+        // Views are buffered in hot paths, so keep them from growing.
+        assert_eq!(core::mem::size_of::<TransactionView<true, &[u8]>>(), 88);
+        assert_eq!(
+            core::mem::size_of::<TransactionView<true, bytes::Bytes>>(),
+            104
+        );
+    }
+
     fn simple_v1_transaction() -> VersionedTransaction {
         let payer = Pubkey::new_unique();
         let program = Pubkey::new_unique();
