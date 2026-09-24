@@ -8,6 +8,8 @@ on:
         required: true
         type: choice
         options:
+          - agave-event-system
+          - agave-event-system-derive
           - agave-geyser-plugin-interface
           - agave-transaction-view
           - agave-scheduler-bindings
