@@ -16,17 +16,17 @@ fn event_system_is_a_no_op() {
     assert!(!event_system_directory.exists());
 
     let event_system = EventSystem::new(&event_system_directory).unwrap();
-    let producer_factory = event_system
+    let publisher_factory = event_system
         .create_stream::<TestEvent>(
             stream_name!("test-stream"),
             StreamConfig {
                 capacity: 0,
-                producer_slots: 0,
+                publisher_slots: 0,
                 consumer_slots: 0,
             },
         )
         .unwrap();
-    let _cloned_producer_factory = producer_factory.clone();
+    let _cloned_publisher_factory = publisher_factory.clone();
 
     assert!(!event_system_directory.exists());
 }

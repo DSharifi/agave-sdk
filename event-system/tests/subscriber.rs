@@ -19,7 +19,7 @@ fn recv_timeout_errors_when_no_message_is_emitted(
     let test_context = TestContextBuilder::new()
         .with_policy_enabling_all_streams()
         .build();
-    let (_producer_factory, mut subscriber) = test_context.create_stream_with_subscriber();
+    let (_publisher_factory, mut subscriber) = test_context.create_stream_with_subscriber();
 
     let wait_start = Instant::now();
     let recv_result = subscriber.recv_timeout(timeout).map(|_message| ());
@@ -39,9 +39,9 @@ fn recv_timeout_returns_already_emitted_message() {
     let test_context = TestContextBuilder::new()
         .with_policy_enabling_all_streams()
         .build();
-    let (producer_factory, mut subscriber) = test_context.create_stream_with_subscriber();
-    let mut producer = producer_factory.try_create_producer().unwrap();
-    producer.emit_event(&TEST_EVENT).unwrap();
+    let (publisher_factory, mut subscriber) = test_context.create_stream_with_subscriber();
+    let mut publisher = publisher_factory.try_create_publisher().unwrap();
+    publisher.emit_event(&TEST_EVENT).unwrap();
 
     let received_event = subscriber
         .recv_timeout(LONG_DURATION)

@@ -78,7 +78,7 @@ const OFF: &str = "off";
 ///
 /// # Disabled streams
 ///
-/// Events emitted by a [`Producer`](crate::producer::Producer) on a disabled
+/// Events emitted by a [`Publisher`](crate::publisher::Publisher) on a disabled
 /// stream are dropped. Its [`Subscriber`](crate::subscriber::Subscriber)s
 /// do not receive those events, and enabling the stream later does not replay them.
 #[derive(Debug, PartialEq, Eq, Default)]

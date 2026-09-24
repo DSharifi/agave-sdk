@@ -15,7 +15,7 @@ pub use {
         event_system::{
             CreateEventSystemError, CreateStreamError, EventQueueError, EventSystem, StreamConfig,
         },
-        producer_factory::ProducerFactory,
+        publisher_factory::PublisherFactory,
         queue_cell::event_queue_cell_size,
     },
     agave_event_system_derive::event,
@@ -27,7 +27,7 @@ use {
     wincode_dynamic::SchemaDynamic,
 };
 
-pub mod producer;
+pub mod publisher;
 pub mod stream_name;
 pub mod stream_policy;
 pub mod subscriber;
@@ -47,7 +47,7 @@ mod backend;
 #[cfg(target_os = "linux")] // cache_padded is only used by linux backend as of now
 pub(crate) mod cache_padded;
 mod event_system;
-mod producer_factory;
+mod publisher_factory;
 mod queue_cell;
 
 /// An event type that can be sent on an event stream.

@@ -11,7 +11,7 @@ use {
     },
 };
 
-/// Manages the stream rules for producer end of streams.
+/// Manages the stream rules for publisher end of streams.
 #[derive(Debug, Default)]
 pub(super) struct StreamPolicyManager {
     stream_refs: Vec<StreamRef>,

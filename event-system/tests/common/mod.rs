@@ -6,7 +6,7 @@
 
 use {
     agave_event_system::{
-        EventSystem, ProducerFactory, StreamConfig, event,
+        EventSystem, PublisherFactory, StreamConfig, event,
         stream_name::StreamName,
         stream_policy::StreamPolicy,
         subscriber::{StreamExplorer, Subscriber, TryRecvError, Typed},
@@ -17,7 +17,7 @@ use {
 
 pub(crate) const TEST_CONFIG: StreamConfig = StreamConfig {
     capacity: 5,
-    producer_slots: 1,
+    publisher_slots: 1,
     consumer_slots: 1,
 };
 
@@ -89,11 +89,11 @@ impl TestContext {
 
     /// Creates [`TEST_STREAM_NAME`] with [`TEST_CONFIG`] and connects a typed subscriber to it.
     ///
-    /// Returns the [`ProducerFactory`] rather than a producer, since producers are not `Send`.
+    /// Returns the [`PublisherFactory`] rather than a publisher, since publishers are not `Send`.
     pub(crate) fn create_stream_with_subscriber(
         &self,
-    ) -> (ProducerFactory<TestEvent>, Subscriber<Typed<TestEvent>>) {
-        let producer_factory = self
+    ) -> (PublisherFactory<TestEvent>, Subscriber<Typed<TestEvent>>) {
+        let publisher_factory = self
             .event_system
             .create_stream(TEST_STREAM_NAME, TEST_CONFIG)
             .unwrap();
@@ -104,6 +104,6 @@ impl TestContext {
             .try_connect_typed::<TestEvent>()
             .unwrap();
 
-        (producer_factory, subscriber)
+        (publisher_factory, subscriber)
     }
 }

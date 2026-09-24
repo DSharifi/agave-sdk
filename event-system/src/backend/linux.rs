@@ -22,12 +22,12 @@ use {
     stream_policy::{AtomicStreamRule, StreamPolicyManager},
 };
 pub(crate) use {
-    producer::Producer,
-    subscriber::{AvailableStream, ProducerMetadata, StreamExplorer, StreamMessage, Subscriber},
+    publisher::Publisher,
+    subscriber::{AvailableStream, PublisherMetadata, StreamExplorer, StreamMessage, Subscriber},
 };
 
-#[path = "linux/producer.rs"]
-mod producer;
+#[path = "linux/publisher.rs"]
+mod publisher;
 #[path = "linux/stream_policy.rs"]
 mod stream_policy;
 #[path = "linux/subscriber.rs"]
@@ -88,12 +88,12 @@ impl EventSystem {
     }
 
     /// Creates a stream named `stream_name` for event type `E`
-    /// and returns its [`ProducerFactory`].
+    /// and returns its [`PublisherFactory`].
     pub(crate) fn create_stream<E: Event>(
         &self,
         stream_name: StreamName,
         stream_config: StreamConfig,
-    ) -> Result<ProducerFactory<E>, CreateStreamError> {
+    ) -> Result<PublisherFactory<E>, CreateStreamError> {
         let event_stream_directory = self
             .event_system_directory
             .join(STREAMS_DIRECTORY_NAME)
@@ -143,7 +143,7 @@ impl EventSystem {
         let atomic_stream_rule = stream_policy_manager_guard.register_new_stream(&stream_guard);
         drop(stream_policy_manager_guard);
 
-        Ok(ProducerFactory::new(
+        Ok(PublisherFactory::new(
             broadcast,
             stream_guard,
             atomic_stream_rule,
@@ -166,7 +166,7 @@ fn create_sealed_queue<E: Event>(
 ) -> Result<(Broadcast<E::QueueCell>, File), CreateStreamError> {
     let broadcast_config = BroadcastConfig {
         capacity: stream_config.capacity,
-        producer_slots: stream_config.producer_slots,
+        producer_slots: stream_config.publisher_slots,
         consumer_slots: stream_config.consumer_slots,
     };
 
@@ -207,14 +207,14 @@ fn create_sealed_queue<E: Event>(
     Ok((broadcast, queue_file))
 }
 
-pub(crate) struct ProducerFactory<E: Event> {
+pub(crate) struct PublisherFactory<E: Event> {
     broadcast: Broadcast<E::QueueCell>,
     stream_guard: Arc<StreamGuard>,
     stream_rule: Arc<AtomicStreamRule>,
 }
 
-impl<E: Event> ProducerFactory<E> {
-    pub(crate) fn try_create_producer(&self) -> Option<Producer<E>> {
+impl<E: Event> PublisherFactory<E> {
+    pub(crate) fn try_create_publisher(&self) -> Option<Publisher<E>> {
         let stream_guard = self.stream_guard.clone();
         // SAFETY: gettid id is always safe to call
         let thread_id: i32 = unsafe { libc::gettid() };
@@ -223,12 +223,12 @@ impl<E: Event> ProducerFactory<E> {
             "gettid man page: `call is always sucessful`, meaning a positive i32 is returned",
         );
 
-        let producer_id = ProducerId::new(thread_id);
-        let broadcast_sender = self.broadcast.producer(producer_id).ok()?;
+        let publisher_id = ProducerId::new(thread_id);
+        let broadcast_sender = self.broadcast.producer(publisher_id).ok()?;
 
-        let producer = Producer::new(broadcast_sender, stream_guard, self.stream_rule.clone());
+        let publisher = Publisher::new(broadcast_sender, stream_guard, self.stream_rule.clone());
 
-        Some(producer)
+        Some(publisher)
     }
 
     fn new(
@@ -244,7 +244,7 @@ impl<E: Event> ProducerFactory<E> {
     }
 }
 
-impl<E: Event> Clone for ProducerFactory<E> {
+impl<E: Event> Clone for PublisherFactory<E> {
     fn clone(&self) -> Self {
         Self {
             broadcast: self.broadcast.clone(),
@@ -254,10 +254,10 @@ impl<E: Event> Clone for ProducerFactory<E> {
     }
 }
 
-impl<E: Event> std::fmt::Debug for ProducerFactory<E> {
+impl<E: Event> std::fmt::Debug for PublisherFactory<E> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("ProducerFactory")
+            .debug_struct("PublisherFactory")
             .field("broadcast", &self.broadcast)
             .finish_non_exhaustive()
     }
@@ -331,7 +331,7 @@ mod tests {
 
     const TEST_CONFIG: StreamConfig = StreamConfig {
         capacity: 2,
-        producer_slots: 1,
+        publisher_slots: 1,
         consumer_slots: 1,
     };
 
