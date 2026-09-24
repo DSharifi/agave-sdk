@@ -23,9 +23,7 @@ use {
 };
 pub(crate) use {
     producer::Producer,
-    subscriber::{
-        AvailableStream, ProducerMetadata, StreamExplorer, StreamMessage, StreamSubscriber,
-    },
+    subscriber::{AvailableStream, ProducerMetadata, StreamExplorer, StreamMessage, Subscriber},
 };
 
 #[path = "linux/producer.rs"]

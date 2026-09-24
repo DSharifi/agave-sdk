@@ -79,7 +79,7 @@ const OFF: &str = "off";
 /// # Disabled streams
 ///
 /// Events emitted by a [`Producer`](crate::producer::Producer) on a disabled
-/// stream are dropped. Its [`StreamSubscriber`](crate::subscriber::StreamSubscriber)s
+/// stream are dropped. Its [`Subscriber`](crate::subscriber::Subscriber)s
 /// do not receive those events, and enabling the stream later does not replay them.
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct StreamPolicy {

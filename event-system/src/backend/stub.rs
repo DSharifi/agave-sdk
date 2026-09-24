@@ -105,11 +105,11 @@ impl StreamExplorer {
 }
 
 #[derive(Debug)]
-pub(crate) struct StreamSubscriber {
+pub(crate) struct Subscriber {
     stream_name: StreamName,
 }
 
-impl StreamSubscriber {
+impl Subscriber {
     pub(crate) fn stream_name(&self) -> &StreamName {
         &self.stream_name
     }
@@ -189,8 +189,8 @@ impl AvailableStream {
         &self.dummy_schema
     }
 
-    pub(crate) fn try_connect(self) -> Result<StreamSubscriber, TryConnectError> {
-        Ok(StreamSubscriber {
+    pub(crate) fn try_connect(self) -> Result<Subscriber, TryConnectError> {
+        Ok(Subscriber {
             stream_name: self.stream_name,
         })
     }
