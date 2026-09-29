@@ -85,6 +85,8 @@ pub enum CreateStreamError {
     FailedToSerializeSchema(#[source] wincode::WriteError),
     #[error("failed to create the event-stream files")]
     FileSystem(#[from] std::io::Error),
+    #[error("the stream name is already in use")]
+    StreamNameAlreadyInUse,
     #[error("failed to create the event-stream queue")]
     Queue(#[source] EventQueueError),
     #[error("failed to produce a random number for the queue identifier")]

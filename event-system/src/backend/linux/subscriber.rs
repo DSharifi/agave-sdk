@@ -350,6 +350,7 @@ mod tests {
         fn new() -> Self {
             let directory = TempDir::new().unwrap();
             let event_system = EventSystem::new(directory.path()).unwrap();
+            event_system.set_stream_policy("on".parse().unwrap());
             let publisher_factory = event_system
                 .create_stream::<TestEvent>(
                     stream_name!("test-stream"),
