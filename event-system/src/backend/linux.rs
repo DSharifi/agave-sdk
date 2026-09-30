@@ -19,7 +19,7 @@ use {
         },
         path::{Path, PathBuf},
         sync::{
-            Arc, Mutex,
+            Arc, Mutex, RwLock,
             atomic::{AtomicU64, Ordering},
         },
     },
@@ -186,7 +186,7 @@ impl<E: Event> PublisherFactory<E> {
 
         let producer_id = ProducerId::new(thread_id);
 
-        let mut stream_state = self.stream.state.lock().unwrap();
+        let mut stream_state = self.stream.state.write().unwrap();
         stream_state.remaining_publisher_slots =
             stream_state.remaining_publisher_slots.checked_sub(1)?;
         let producer = stream_state.create_producer(producer_id);
@@ -236,7 +236,7 @@ struct EventStream<E: Event> {
     event_system_directory: Arc<Path>,
     stream_name: StreamName,
     stream_config: StreamConfig,
-    state: Mutex<StreamState<E>>,
+    state: RwLock<StreamState<E>>,
 }
 
 impl<E: Event> EventStream<E> {
@@ -251,7 +251,7 @@ impl<E: Event> EventStream<E> {
             event_system_directory,
             stream_name,
             stream_config,
-            state: Mutex::new(StreamState {
+            state: RwLock::new(StreamState {
                 queue: None,
                 remaining_publisher_slots: stream_config.publisher_slots,
             }),
@@ -265,7 +265,7 @@ impl<E: Event> PolicyControlledStream for EventStream<E> {
     }
 
     fn apply_stream_rule(&self, stream_rule: StreamRule) -> Result<(), CreateStreamError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.write().unwrap();
         match (stream_rule, &state.queue) {
             (StreamRule::On, None) => state.queue = Some(StreamQueue::create(self)?),
             (StreamRule::Off, Some(_)) => state.queue = None,

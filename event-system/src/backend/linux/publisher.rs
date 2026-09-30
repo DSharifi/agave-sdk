@@ -95,7 +95,7 @@ impl<E: Event> Publisher<E> {
         // releases the previous queue
         self.producer = None;
 
-        let stream_state = self.stream.state.lock().unwrap();
+        let stream_state = self.stream.state.read().unwrap();
         self.queue_generation = self.stream.queue_generation.load(Ordering::Relaxed);
         self.producer = stream_state.create_producer(self.producer_id);
     }
