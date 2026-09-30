@@ -5,7 +5,7 @@ use crate::{
 
 /// Metadata for accessing the tx-v1 transaction config section.
 ///
-/// This frame is a permanent part of `TransactionFrame`, but it is only
+/// This frame is a permanent part of `MessageFrame`, but it is only
 /// applicable to tx-v1. For legacy and v0 transactions, use
 /// `TransactionConfigFrame::not_applicable()`.
 ///
