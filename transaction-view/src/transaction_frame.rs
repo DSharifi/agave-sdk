@@ -297,32 +297,8 @@ impl TransactionFrame {
     ///     used to create the `TransactionFrame` instance.
     #[inline]
     pub(crate) unsafe fn signatures<'a>(&self, bytes: &'a [u8]) -> &'a [Signature] {
-        // Verify at compile time there are no alignment constraints.
-        const _: () = assert!(
-            core::mem::align_of::<Signature>() == 1,
-            "Signature alignment"
-        );
-        // The length of the slice is not greater than isize::MAX.
-        const _: () =
-            assert!(u8::MAX as usize * core::mem::size_of::<Signature>() <= isize::MAX as usize);
-
-        // SAFETY:
-        // - If this `TransactionFrame` was created from `bytes`:
-        //     - the pointer is valid for the range and is properly aligned.
-        // - `num_signatures` has been verified against the bounds if
-        //   `TransactionFrame` was created successfully.
-        // - `Signature` are just byte arrays; there is no possibility the
-        //   `Signature` are not initialized properly.
-        // - The lifetime of the returned slice is the same as the input
-        //   `bytes`. This means it will not be mutated or deallocated while
-        //   holding the slice.
-        // - The length does not overflow `isize`.
-        unsafe {
-            core::slice::from_raw_parts(
-                bytes.as_ptr().add(usize::from(self.signature.offset)) as *const Signature,
-                usize::from(self.signature.num_signatures),
-            )
-        }
+        // SAFETY: `signature` was created from the same `bytes`.
+        unsafe { self.signature.signatures(bytes) }
     }
 
     /// Return the slice of static account keys in the transaction.
