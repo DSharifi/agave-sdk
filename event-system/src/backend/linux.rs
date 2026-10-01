@@ -73,9 +73,8 @@ impl EventSystem {
     /// - If the directory path already exists, it must be empty.
     /// - This functions creates the given directory and any missing parents.
     /// - The given path is canonicalized.
-    /// - The directory is removed once this [`EventSystem`], its clones, and
-    ///   all of its streams are dropped. A directory that existed before is
-    ///   left in place, but emptied.
+    /// - The directory is emptied once this [`EventSystem`], its clones, and
+    ///   all of its streams are dropped. The directory itself is left in place.
     pub(crate) fn new(
         event_system_directory: impl AsRef<Path>,
     ) -> Result<Self, CreateEventSystemError> {
@@ -286,18 +285,17 @@ impl Drop for StreamGuard {
 /// The root of an event system's directory layout.
 ///
 /// Shared by the [`EventSystem`] and its streams, so the layout is removed
-/// only after the last of them is dropped.
+/// only after the last of them is dropped. The root directory is left in
+/// place, since it may have been set up by the caller (e.g. with permissions
+/// for subscribers), and an empty directory can be reused by
+/// [`EventSystem::new`].
 #[derive(Debug)]
 struct EventSystemDirectory {
     path: Box<Path>,
-    /// Whether [`EventSystemDirectory::create`] created the root directory,
-    /// as opposed to reusing an existing empty one.
-    remove_root: bool,
 }
 
 impl EventSystemDirectory {
     fn create(path: &Path) -> io::Result<Self> {
-        let remove_root = !path.try_exists()?;
         create_dir_all(path)?;
         let path = path.canonicalize()?;
         create_dir(path.join(STAGING_DIRECTORY_NAME))?;
@@ -305,10 +303,7 @@ impl EventSystemDirectory {
             let _ = remove_dir(path.join(STAGING_DIRECTORY_NAME));
             return Err(error);
         }
-        Ok(Self {
-            path: path.into(),
-            remove_root,
-        })
+        Ok(Self { path: path.into() })
     }
 }
 
@@ -318,9 +313,6 @@ impl Drop for EventSystemDirectory {
         // expected to be empty. `remove_dir` leaves anything unexpected in place.
         let _ = remove_dir(self.path.join(STAGING_DIRECTORY_NAME));
         let _ = remove_dir(self.path.join(STREAMS_DIRECTORY_NAME));
-        if self.remove_root {
-            let _ = remove_dir(&self.path);
-        }
     }
 }
 

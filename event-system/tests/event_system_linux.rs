@@ -43,36 +43,26 @@ fn create_event_system_fails_when_directory_is_reused() {
     assert_matches!(event_system_with_reused_path_result, Err(_));
 }
 
-#[test]
-fn dropping_event_system_removes_the_directory_it_created() {
+#[rstest]
+#[case::created_by_event_system("event-system")]
+#[case::existing("")]
+fn dropping_event_system_empties_its_directory(#[case] subdirectory: &str) {
     let directory = TempDir::new().unwrap();
-    let path = directory.path().join("event-system");
+    let path = directory.path().join(subdirectory);
 
     drop(EventSystem::new(&path).unwrap());
-    assert!(!path.exists());
+    assert!(path.is_dir());
+    assert_eq!(std::fs::read_dir(&path).unwrap().count(), 0);
 
     let _event_system =
         EventSystem::new(&path).expect("the path can be reused after the event system is dropped");
 }
 
 #[test]
-fn dropping_event_system_empties_but_keeps_an_existing_directory() {
-    let directory = TempDir::new().unwrap();
-    let path = directory.path();
-
-    drop(EventSystem::new(path).unwrap());
-    assert!(path.is_dir());
-    assert_eq!(std::fs::read_dir(path).unwrap().count(), 0);
-
-    let _event_system =
-        EventSystem::new(path).expect("the path can be reused after the event system is dropped");
-}
-
-#[test]
 fn event_system_directory_outlives_event_system_while_streams_are_alive() {
     let directory = TempDir::new().unwrap();
-    let path = directory.path().join("event-system");
-    let event_system = EventSystem::new(&path).unwrap();
+    let path = directory.path();
+    let event_system = EventSystem::new(path).unwrap();
     let publisher_factory = event_system
         .create_stream::<TestEvent>(TEST_STREAM_NAME, TEST_CONFIG)
         .unwrap();
@@ -82,7 +72,7 @@ fn event_system_directory_outlives_event_system_while_streams_are_alive() {
     assert!(stream_directory.is_dir());
 
     drop(publisher_factory);
-    assert!(!path.exists());
+    assert_eq!(std::fs::read_dir(path).unwrap().count(), 0);
 }
 
 #[test]
