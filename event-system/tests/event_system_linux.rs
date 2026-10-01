@@ -59,6 +59,20 @@ fn dropping_event_system_empties_its_directory(#[case] subdirectory: &str) {
 }
 
 #[test]
+fn dropping_event_system_removes_leftover_contents() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path();
+    let event_system = EventSystem::new(path).unwrap();
+    let leftover_directory = path.join("event-streams").join("leftover");
+    std::fs::create_dir(&leftover_directory).unwrap();
+    std::fs::write(leftover_directory.join("file"), b"leftover").unwrap();
+    std::fs::write(path.join("tmp").join("file"), b"leftover").unwrap();
+
+    drop(event_system);
+    assert_eq!(std::fs::read_dir(path).unwrap().count(), 0);
+}
+
+#[test]
 fn event_system_directory_outlives_event_system_while_streams_are_alive() {
     let directory = TempDir::new().unwrap();
     let path = directory.path();

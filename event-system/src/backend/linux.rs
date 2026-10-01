@@ -310,9 +310,10 @@ impl EventSystemDirectory {
 impl Drop for EventSystemDirectory {
     fn drop(&mut self) {
         // Every stream has removed its own directory by now, so these are
-        // expected to be empty. `remove_dir` leaves anything unexpected in place.
-        let _ = remove_dir(self.path.join(STAGING_DIRECTORY_NAME));
-        let _ = remove_dir(self.path.join(STREAMS_DIRECTORY_NAME));
+        // expected to be empty. Both were created by `create`, so anything
+        // left in them is removed too, so that a later `create` can succeed.
+        let _ = remove_dir_all(self.path.join(STAGING_DIRECTORY_NAME));
+        let _ = remove_dir_all(self.path.join(STREAMS_DIRECTORY_NAME));
     }
 }
 
