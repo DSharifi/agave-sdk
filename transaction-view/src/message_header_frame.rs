@@ -12,7 +12,7 @@ use {
 pub(crate) struct MessageHeaderFrame {
     /// The offset to the first byte of the message in the transaction packet.
     pub(crate) offset: u16,
-    /// The version of the transaction.
+    /// The version of the message.
     pub(crate) version: TransactionVersion,
     /// The number of signatures required for this message to be considered
     /// valid.
