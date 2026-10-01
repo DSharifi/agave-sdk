@@ -33,14 +33,18 @@ fn create_event_system_fails_when_path_is_a_file() {
 }
 
 #[test]
-fn create_event_system_fails_when_directory_is_reused() {
+fn create_event_system_reuses_directory_only_after_drop() {
     let directory = TempDir::new().unwrap();
     let path = directory.path();
 
-    let _event_system = EventSystem::new(path).unwrap();
+    let event_system = EventSystem::new(path).unwrap();
 
     let event_system_with_reused_path_result = EventSystem::new(path);
     assert_matches!(event_system_with_reused_path_result, Err(_));
+
+    drop(event_system);
+    let _event_system =
+        EventSystem::new(path).expect("the path can be reused after the event system is dropped");
 }
 
 #[test]
