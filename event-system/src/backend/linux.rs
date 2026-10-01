@@ -10,7 +10,7 @@ use {
     },
     shaq::broadcast::{Broadcast, BroadcastConfig, ProducerId},
     std::{
-        fs::{File, OpenOptions, create_dir, create_dir_all, remove_dir_all},
+        fs::{File, OpenOptions, create_dir, create_dir_all, remove_dir, remove_dir_all},
         io::{self, Write},
         os::{
             fd::{AsRawFd, FromRawFd},
@@ -62,7 +62,7 @@ pub(crate) type EventQueueError = shaq::error::Error;
 
 #[derive(Debug, Clone)]
 pub(crate) struct EventSystem {
-    event_system_directory: Arc<Path>,
+    event_system_directory: Arc<EventSystemDirectory>,
     stream_policy_manager: Arc<Mutex<StreamPolicyManager>>,
 }
 
@@ -73,16 +73,16 @@ impl EventSystem {
     /// - If the directory path already exists, it must be empty.
     /// - This functions creates the given directory and any missing parents.
     /// - The given path is canonicalized.
+    /// - The directory is removed once this [`EventSystem`], its clones, and
+    ///   all of its streams are dropped. A directory that existed before is
+    ///   left in place, but emptied.
     pub(crate) fn new(
         event_system_directory: impl AsRef<Path>,
     ) -> Result<Self, CreateEventSystemError> {
-        create_dir_all(&event_system_directory)?;
-        let event_system_directory = event_system_directory.as_ref().canonicalize()?;
-        create_dir(event_system_directory.join(STAGING_DIRECTORY_NAME))?;
-        create_dir(event_system_directory.join(STREAMS_DIRECTORY_NAME))?;
+        let event_system_directory = EventSystemDirectory::create(event_system_directory.as_ref())?;
 
         Ok(Self {
-            event_system_directory: event_system_directory.into(),
+            event_system_directory: Arc::new(event_system_directory),
             stream_policy_manager: Arc::new(Mutex::new(StreamPolicyManager::default())),
         })
     }
@@ -96,11 +96,13 @@ impl EventSystem {
     ) -> Result<PublisherFactory<E>, CreateStreamError> {
         let event_stream_directory = self
             .event_system_directory
+            .path
             .join(STREAMS_DIRECTORY_NAME)
             .join(stream_name.as_str());
 
         let staging_directory = self
             .event_system_directory
+            .path
             .join(STAGING_DIRECTORY_NAME)
             .join(stream_name.as_str());
 
@@ -137,6 +139,7 @@ impl EventSystem {
             event_stream_directory: event_stream_directory.into(),
             stream_name: Arc::new(stream_name),
             _queue_file: queue_file,
+            _event_system_directory: Arc::clone(&self.event_system_directory),
         });
 
         let mut stream_policy_manager_guard = self.stream_policy_manager.lock().unwrap();
@@ -270,11 +273,54 @@ struct StreamGuard {
     stream_name: Arc<StreamName>,
     // keeps the anonymous file alive
     _queue_file: File,
+    // keeps the event-system directory alive until the stream directory is removed
+    _event_system_directory: Arc<EventSystemDirectory>,
 }
 
 impl Drop for StreamGuard {
     fn drop(&mut self) {
         let _ = remove_dir_all(&self.event_stream_directory);
+    }
+}
+
+/// The root of an event system's directory layout.
+///
+/// Shared by the [`EventSystem`] and its streams, so the layout is removed
+/// only after the last of them is dropped.
+#[derive(Debug)]
+struct EventSystemDirectory {
+    path: Box<Path>,
+    /// Whether [`EventSystemDirectory::create`] created the root directory,
+    /// as opposed to reusing an existing empty one.
+    remove_root: bool,
+}
+
+impl EventSystemDirectory {
+    fn create(path: &Path) -> io::Result<Self> {
+        let remove_root = !path.try_exists()?;
+        create_dir_all(path)?;
+        let path = path.canonicalize()?;
+        create_dir(path.join(STAGING_DIRECTORY_NAME))?;
+        if let Err(error) = create_dir(path.join(STREAMS_DIRECTORY_NAME)) {
+            let _ = remove_dir(path.join(STAGING_DIRECTORY_NAME));
+            return Err(error);
+        }
+        Ok(Self {
+            path: path.into(),
+            remove_root,
+        })
+    }
+}
+
+impl Drop for EventSystemDirectory {
+    fn drop(&mut self) {
+        // Every stream has removed its own directory by now, so these are
+        // expected to be empty. `remove_dir` leaves anything unexpected in place.
+        let _ = remove_dir(self.path.join(STAGING_DIRECTORY_NAME));
+        let _ = remove_dir(self.path.join(STREAMS_DIRECTORY_NAME));
+        if self.remove_root {
+            let _ = remove_dir(&self.path);
+        }
     }
 }
 

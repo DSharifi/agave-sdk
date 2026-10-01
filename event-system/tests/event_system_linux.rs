@@ -44,6 +44,48 @@ fn create_event_system_fails_when_directory_is_reused() {
 }
 
 #[test]
+fn dropping_event_system_removes_the_directory_it_created() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("event-system");
+
+    drop(EventSystem::new(&path).unwrap());
+    assert!(!path.exists());
+
+    let _event_system =
+        EventSystem::new(&path).expect("the path can be reused after the event system is dropped");
+}
+
+#[test]
+fn dropping_event_system_empties_but_keeps_an_existing_directory() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path();
+
+    drop(EventSystem::new(path).unwrap());
+    assert!(path.is_dir());
+    assert_eq!(std::fs::read_dir(path).unwrap().count(), 0);
+
+    let _event_system =
+        EventSystem::new(path).expect("the path can be reused after the event system is dropped");
+}
+
+#[test]
+fn event_system_directory_outlives_event_system_while_streams_are_alive() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("event-system");
+    let event_system = EventSystem::new(&path).unwrap();
+    let publisher_factory = event_system
+        .create_stream::<TestEvent>(TEST_STREAM_NAME, TEST_CONFIG)
+        .unwrap();
+    let stream_directory = path.join("event-streams").join(TEST_STREAM_NAME.as_str());
+
+    drop(event_system);
+    assert!(stream_directory.is_dir());
+
+    drop(publisher_factory);
+    assert!(!path.exists());
+}
+
+#[test]
 fn create_stream_reserves_names_only_after_success() {
     let test_context = TestContextBuilder::new()
         .with_policy_enabling_all_streams()

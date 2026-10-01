@@ -22,6 +22,10 @@ impl EventSystem {
     /// - If the directory path already exists, it must be empty.
     /// - This functions creates the given directory and any missing parents.
     /// - The given path is canonicalized.
+    /// - The directory is removed once this [`EventSystem`], its clones, and
+    ///   all of its streams (including their [`PublisherFactory`]s and
+    ///   publishers) are dropped. If the directory existed before, it is left
+    ///   in place, but emptied.
     pub fn new(event_system_directory: impl AsRef<Path>) -> Result<Self, CreateEventSystemError> {
         Ok(Self {
             backend: backend::EventSystem::new(event_system_directory)?,
