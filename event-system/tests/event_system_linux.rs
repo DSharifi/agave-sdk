@@ -13,7 +13,7 @@ use {
     },
     common::{TEST_CONFIG, TEST_STREAM_NAME, TestEnumEvent, TestEvent},
     rstest::rstest,
-    std::{assert_matches, io::ErrorKind},
+    std::assert_matches,
     tempfile::TempDir,
     wincode_dynamic::Value,
 };
@@ -67,14 +67,11 @@ fn create_stream_reserves_names_only_after_success() {
         .expect("test-events is unused stream name as it failed above");
 
     assert_matches!(
-        test_context.event_system.create_stream::<TestEvent>(REUSED_STREAM_NAME, TEST_CONFIG),
-        Err(CreateStreamError::FileSystem(error))
-            if matches!(
-                error.kind(),
-                // Linux permits EEXIST or ENOTEMPTY for a nonempty destination.
-                ErrorKind::AlreadyExists | ErrorKind::DirectoryNotEmpty
-            ),
-            "creation of the same stream name must now fail, since it succeeded above."
+        test_context
+            .event_system
+            .create_stream::<TestEvent>(REUSED_STREAM_NAME, TEST_CONFIG),
+        Err(CreateStreamError::StreamNameAlreadyInUse),
+        "creation of the same stream name must now fail, since it succeeded above."
     );
 }
 

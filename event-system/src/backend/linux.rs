@@ -1,14 +1,15 @@
 use {
     crate::{
         Event,
+        cache_padded::CachePadded,
         event_system::{
             CreateEventSystemError, CreateStreamError, EventQueueError as PublicEventQueueError,
             StreamConfig,
         },
         stream_name::StreamName,
-        stream_policy::StreamPolicy,
+        stream_policy::{StreamPolicy, StreamRule},
     },
-    shaq::broadcast::{Broadcast, BroadcastConfig, ProducerId},
+    shaq::broadcast::{Broadcast, BroadcastConfig, Producer, ProducerId},
     std::{
         fs::{File, OpenOptions, create_dir, create_dir_all, remove_dir_all},
         io::{self, Write},
@@ -17,9 +18,12 @@ use {
             unix::fs::symlink,
         },
         path::{Path, PathBuf},
-        sync::{Arc, Mutex},
+        sync::{
+            Arc, Mutex, RwLock,
+            atomic::{AtomicU64, Ordering},
+        },
     },
-    stream_policy::{AtomicStreamRule, StreamPolicyManager},
+    stream_policy::{PolicyControlledStream, StreamPolicyManager},
 };
 pub(crate) use {
     publisher::Publisher,
@@ -87,67 +91,27 @@ impl EventSystem {
         })
     }
 
-    /// Creates a stream named `stream_name` for event type `E`
-    /// and returns its [`PublisherFactory`].
+    /// Creates a [`PublisherFactory`] for the given stream name and config.
+    ///
+    /// The stream is not published if the current [`StreamPolicy`] of this event
+    /// system has this stream name disabled.
     pub(crate) fn create_stream<E: Event>(
         &self,
         stream_name: StreamName,
         stream_config: StreamConfig,
     ) -> Result<PublisherFactory<E>, CreateStreamError> {
-        let event_stream_directory = self
-            .event_system_directory
-            .join(STREAMS_DIRECTORY_NAME)
-            .join(stream_name.as_str());
+        let stream = Arc::new(EventStream::new(
+            self.event_system_directory.clone(),
+            stream_name,
+            stream_config,
+        ));
 
-        let staging_directory = self
-            .event_system_directory
-            .join(STAGING_DIRECTORY_NAME)
-            .join(stream_name.as_str());
+        self.stream_policy_manager
+            .lock()
+            .unwrap()
+            .register_new_stream(stream.clone())?;
 
-        let temporary_event_stream_directory = StagingDirectory::new(staging_directory)?;
-
-        let schema_file_path = temporary_event_stream_directory
-            .path()
-            .join(SCHEMA_FILE_NAME);
-        let mut schema_file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(schema_file_path)?;
-        let encoded_schema =
-            wincode::serialize(&E::schema()).map_err(CreateStreamError::FailedToSerializeSchema)?;
-        schema_file.write_all(&encoded_schema)?;
-
-        let queue_identifier = getrandom::u64()
-            .map_err(io::Error::from)
-            .map_err(CreateStreamError::OsRngFailure)?;
-        let (broadcast, queue_file) = create_sealed_queue::<E>(stream_config, queue_identifier)?;
-
-        let queue_file_name = format!("{QUEUE_FILE_NAME_PREFIX}{queue_identifier}");
-        let queue_file_path = temporary_event_stream_directory
-            .path()
-            .join(queue_file_name);
-        let process_id = std::process::id();
-        let queue_fd = queue_file.as_raw_fd();
-        let proc_fd_path = format!("/proc/{process_id}/fd/{queue_fd}");
-        symlink(proc_fd_path, queue_file_path)?;
-
-        temporary_event_stream_directory.publish(&event_stream_directory)?;
-
-        let stream_guard = Arc::new(StreamGuard {
-            event_stream_directory: event_stream_directory.into(),
-            stream_name: Arc::new(stream_name),
-            _queue_file: queue_file,
-        });
-
-        let mut stream_policy_manager_guard = self.stream_policy_manager.lock().unwrap();
-        let atomic_stream_rule = stream_policy_manager_guard.register_new_stream(&stream_guard);
-        drop(stream_policy_manager_guard);
-
-        Ok(PublisherFactory::new(
-            broadcast,
-            stream_guard,
-            atomic_stream_rule,
-        ))
+        Ok(PublisherFactory { stream })
     }
 
     pub(crate) fn set_stream_policy(&self, new_stream_policy: StreamPolicy) {
@@ -208,14 +172,11 @@ fn create_sealed_queue<E: Event>(
 }
 
 pub(crate) struct PublisherFactory<E: Event> {
-    broadcast: Broadcast<E::QueueCell>,
-    stream_guard: Arc<StreamGuard>,
-    stream_rule: Arc<AtomicStreamRule>,
+    stream: Arc<EventStream<E>>,
 }
 
 impl<E: Event> PublisherFactory<E> {
     pub(crate) fn try_create_publisher(&self) -> Option<Publisher<E>> {
-        let stream_guard = self.stream_guard.clone();
         // SAFETY: gettid id is always safe to call
         let thread_id: i32 = unsafe { libc::gettid() };
 
@@ -224,32 +185,27 @@ impl<E: Event> PublisherFactory<E> {
         );
 
         let producer_id = ProducerId::new(thread_id);
-        let broadcast_sender = self.broadcast.producer(producer_id).ok()?;
 
-        let publisher = Publisher::new(broadcast_sender, stream_guard, self.stream_rule.clone());
+        let mut stream_state = self.stream.state.write().unwrap();
+        stream_state.remaining_publisher_slots =
+            stream_state.remaining_publisher_slots.checked_sub(1)?;
+        let producer = stream_state.create_producer(producer_id);
+        let queue_generation = self.stream.queue_generation.load(Ordering::Relaxed);
+        drop(stream_state);
 
-        Some(publisher)
-    }
-
-    fn new(
-        broadcast: Broadcast<E::QueueCell>,
-        stream_guard: Arc<StreamGuard>,
-        stream_rule: Arc<AtomicStreamRule>,
-    ) -> Self {
-        Self {
-            broadcast,
-            stream_guard,
-            stream_rule,
-        }
+        Some(Publisher::new(
+            self.stream.clone(),
+            producer_id,
+            queue_generation,
+            producer,
+        ))
     }
 }
 
 impl<E: Event> Clone for PublisherFactory<E> {
     fn clone(&self) -> Self {
         Self {
-            broadcast: self.broadcast.clone(),
-            stream_guard: self.stream_guard.clone(),
-            stream_rule: self.stream_rule.clone(),
+            stream: self.stream.clone(),
         }
     }
 }
@@ -258,21 +214,147 @@ impl<E: Event> std::fmt::Debug for PublisherFactory<E> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("PublisherFactory")
-            .field("broadcast", &self.broadcast)
+            .field("stream_name", &self.stream.stream_name)
             .finish_non_exhaustive()
     }
 }
 
-/// Keeps a stream's backing file alive and removes its directory on drop.
-#[derive(Debug)]
-struct StreamGuard {
+/// An event stream whose queue only exists while the stream policy enables it.
+///
+/// Each time the stream is enabled, a new queue is created and published. Each
+/// time it is disabled, the queue is unpublished. Publishers notice either change
+/// at their next publish, where they drop their producer on the previous queue and
+/// create one on the current queue.
+///
+/// Publishers swap producers themselves so that publishing never takes a lock. The
+/// cost is that a publisher keeps the previous queue mapped until its next publish.
+struct EventStream<E: Event> {
+    /// Incremented each time the queue is created or dropped, while `state` is locked.
+    ///
+    /// Publishers load it on every publish, so it is kept on its own cache line.
+    queue_generation: CachePadded<AtomicU64>,
+    event_system_directory: Arc<Path>,
+    stream_name: StreamName,
+    stream_config: StreamConfig,
+    state: RwLock<StreamState<E>>,
+}
+
+impl<E: Event> EventStream<E> {
+    /// Creates a disabled stream, which has no queue until a stream rule enables it.
+    fn new(
+        event_system_directory: Arc<Path>,
+        stream_name: StreamName,
+        stream_config: StreamConfig,
+    ) -> Self {
+        Self {
+            queue_generation: CachePadded::new(AtomicU64::new(0)),
+            event_system_directory,
+            stream_name,
+            stream_config,
+            state: RwLock::new(StreamState {
+                queue: None,
+                remaining_publisher_slots: stream_config.publisher_slots,
+            }),
+        }
+    }
+}
+
+impl<E: Event> PolicyControlledStream for EventStream<E> {
+    fn stream_name(&self) -> &StreamName {
+        &self.stream_name
+    }
+
+    fn apply_stream_rule(&self, stream_rule: StreamRule) -> Result<(), CreateStreamError> {
+        let mut state = self.state.write().unwrap();
+        match (stream_rule, &state.queue) {
+            (StreamRule::On, None) => state.queue = Some(StreamQueue::create(self)?),
+            (StreamRule::Off, Some(_)) => state.queue = None,
+            // the stream already follows the rule
+            (StreamRule::On, Some(_)) | (StreamRule::Off, None) => return Ok(()),
+        }
+
+        self.queue_generation.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+struct StreamState<E: Event> {
+    /// The stream's queue, which is `None` while the stream is disabled.
+    queue: Option<StreamQueue<E>>,
+    /// Number of publishers that can still be created for the stream, as its
+    /// publisher slots are a lifetime budget.
+    remaining_publisher_slots: usize,
+}
+
+impl<E: Event> StreamState<E> {
+    /// Creates a producer on the queue, or returns `None` while the stream is disabled.
+    fn create_producer(&self, producer_id: ProducerId) -> Option<Producer<E::QueueCell>> {
+        self.queue.as_ref()?.broadcast.producer(producer_id).ok()
+    }
+}
+
+/// A published queue of an enabled stream.
+///
+/// Keeps the queue's backing file alive and removes its directory on drop.
+struct StreamQueue<E: Event> {
+    broadcast: Broadcast<E::QueueCell>,
     event_stream_directory: Box<Path>,
-    stream_name: Arc<StreamName>,
     // keeps the anonymous file alive
     _queue_file: File,
 }
 
-impl Drop for StreamGuard {
+impl<E: Event> StreamQueue<E> {
+    /// Creates a new queue for `stream` and publishes it in the event system directory.
+    fn create(stream: &EventStream<E>) -> Result<Self, CreateStreamError> {
+        let event_stream_directory = stream
+            .event_system_directory
+            .join(STREAMS_DIRECTORY_NAME)
+            .join(stream.stream_name.as_str());
+
+        let staging_directory = stream
+            .event_system_directory
+            .join(STAGING_DIRECTORY_NAME)
+            .join(stream.stream_name.as_str());
+
+        let temporary_event_stream_directory = StagingDirectory::new(staging_directory)?;
+
+        let schema_file_path = temporary_event_stream_directory
+            .path()
+            .join(SCHEMA_FILE_NAME);
+        let mut schema_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(schema_file_path)?;
+        let encoded_schema =
+            wincode::serialize(&E::schema()).map_err(CreateStreamError::FailedToSerializeSchema)?;
+        schema_file.write_all(&encoded_schema)?;
+
+        let queue_identifier = getrandom::u64()
+            .map_err(io::Error::from)
+            .map_err(CreateStreamError::OsRngFailure)?;
+        let (broadcast, queue_file) =
+            create_sealed_queue::<E>(stream.stream_config, queue_identifier)?;
+
+        let queue_file_name = format!("{QUEUE_FILE_NAME_PREFIX}{queue_identifier}");
+        let queue_file_path = temporary_event_stream_directory
+            .path()
+            .join(queue_file_name);
+        let process_id = std::process::id();
+        let queue_fd = queue_file.as_raw_fd();
+        let proc_fd_path = format!("/proc/{process_id}/fd/{queue_fd}");
+        symlink(proc_fd_path, queue_file_path)?;
+
+        temporary_event_stream_directory.publish(&event_stream_directory)?;
+
+        Ok(Self {
+            broadcast,
+            event_stream_directory: event_stream_directory.into(),
+            _queue_file: queue_file,
+        })
+    }
+}
+
+impl<E: Event> Drop for StreamQueue<E> {
     fn drop(&mut self) {
         let _ = remove_dir_all(&self.event_stream_directory);
     }

@@ -1,11 +1,12 @@
 #[cfg(target_os = "linux")]
 use {
     crate::common::{
-        TEST_CONFIG, TEST_EVENT, TestContextBuilder, TestEvent, assert_is_empty, assert_received,
+        TEST_CONFIG, TEST_EVENT, TEST_STREAM_NAME, TestContext, TestContextBuilder, TestEvent,
+        assert_is_empty, assert_received,
     },
     agave_event_system::{
-        stream_name,
-        subscriber::{self, AvailableStream},
+        StreamConfig, stream_name,
+        subscriber::{self, Subscriber, Typed},
     },
 };
 use {
@@ -15,6 +16,45 @@ use {
 };
 
 mod common;
+
+#[cfg(target_os = "linux")]
+fn available_stream_names(test_context: &TestContext) -> Vec<String> {
+    let mut stream_names: Vec<String> =
+        subscriber::StreamExplorer::new(test_context.event_system_path())
+            .available_streams()
+            .map(|stream| stream.stream_name().as_str().to_string())
+            .collect();
+    stream_names.sort();
+    stream_names
+}
+
+#[cfg(target_os = "linux")]
+fn connect(test_context: &TestContext, stream_name: &str) -> Subscriber<Typed<TestEvent>> {
+    subscriber::StreamExplorer::new(test_context.event_system_path())
+        .available_streams()
+        .find(|stream| stream.stream_name().as_str() == stream_name)
+        .expect("stream should exist")
+        .try_connect_typed::<TestEvent>()
+        .unwrap()
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn disabled_stream_is_not_published() {
+    let test_context = TestContextBuilder::new().build();
+    let publisher_factory = test_context
+        .event_system
+        .create_stream::<TestEvent>(TEST_STREAM_NAME, TEST_CONFIG)
+        .unwrap();
+    let mut publisher = publisher_factory.try_create_publisher().unwrap();
+
+    publisher.publish(&TEST_EVENT).unwrap();
+    publisher.publish_batch(&[TEST_EVENT, TEST_EVENT]).unwrap();
+
+    assert!(available_stream_names(&test_context).is_empty());
+    let streams_directory = test_context.event_system_path().join("event-streams");
+    assert_eq!(std::fs::read_dir(streams_directory).unwrap().count(), 0);
+}
 
 #[cfg(target_os = "linux")]
 #[test]
@@ -30,40 +70,11 @@ fn toggling_stream_policy_for_live_event_system() {
             .unwrap()
     };
 
-    let network_packets_publisher = create_publisher(stream_name!("network.packets"));
-    let network_drops_publisher = create_publisher(stream_name!("network.drops"));
-    let block_production_transaction_publisher =
-        create_publisher(stream_name!("block-production.transaction"));
-
-    let subscriber = subscriber::StreamExplorer::new(test_context.event_system_path());
-    let mut available_streams: Vec<AvailableStream> =
-        subscriber.available_streams().collect::<Vec<_>>();
-
-    let mut connect = |name: &str| {
-        available_streams
-            .extract_if(.., |stream| stream.stream_name().as_str() == name)
-            .next()
-            .expect("stream should exist")
-            .try_connect_typed::<TestEvent>()
-            .unwrap()
-    };
-
-    let mut network_packets_subscriber = connect("network.packets");
-    let mut network_drops_subscriber = connect("network.drops");
-    let mut block_production_transaction_subscriber = connect("block-production.transaction");
-
-    assert!(
-        available_streams.is_empty(),
-        "sanity check failed that no other streams were created"
-    );
-
     let mut publishers = [
-        network_packets_publisher,
-        network_drops_publisher,
-        block_production_transaction_publisher,
+        create_publisher(stream_name!("network.packets")),
+        create_publisher(stream_name!("network.drops")),
+        create_publisher(stream_name!("block-production.transaction")),
     ];
-
-    // initially all are off due to default policy not being replaced
     let mut publish_on_all_publishers = move || {
         for publisher in publishers.iter_mut() {
             publisher.publish(&TEST_EVENT).unwrap();
@@ -71,19 +82,29 @@ fn toggling_stream_policy_for_live_event_system() {
     };
 
     publish_on_all_publishers();
+    assert!(
+        available_stream_names(&test_context).is_empty(),
+        "all streams are disabled by the default policy"
+    );
 
-    assert_is_empty([
-        &mut network_packets_subscriber,
-        &mut network_drops_subscriber,
-        &mut block_production_transaction_subscriber,
-    ]);
-
-    // enable all streams
     test_context
         .event_system
         .set_stream_policy("on".parse().unwrap());
+    assert_eq!(
+        available_stream_names(&test_context),
+        [
+            "block-production.transaction",
+            "network.drops",
+            "network.packets"
+        ]
+    );
 
-    // message sent earlier is not retained in the queues
+    let mut network_packets_subscriber = connect(&test_context, "network.packets");
+    let mut network_drops_subscriber = connect(&test_context, "network.drops");
+    let mut block_production_transaction_subscriber =
+        connect(&test_context, "block-production.transaction");
+
+    // events published while the streams were disabled are not retained
     assert_is_empty([
         &mut network_packets_subscriber,
         &mut network_drops_subscriber,
@@ -91,7 +112,6 @@ fn toggling_stream_policy_for_live_event_system() {
     ]);
 
     publish_on_all_publishers();
-
     assert_received([
         &mut network_packets_subscriber,
         &mut network_drops_subscriber,
@@ -103,6 +123,10 @@ fn toggling_stream_policy_for_live_event_system() {
             .parse()
             .unwrap(),
     );
+    assert_eq!(
+        available_stream_names(&test_context),
+        ["block-production.transaction", "network.drops"]
+    );
 
     publish_on_all_publishers();
     assert_is_empty([&mut network_packets_subscriber]);
@@ -110,6 +134,81 @@ fn toggling_stream_policy_for_live_event_system() {
         &mut network_drops_subscriber,
         &mut block_production_transaction_subscriber,
     ]);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn reenabled_stream_is_a_new_stream() {
+    let test_context = TestContextBuilder::new()
+        .with_policy_enabling_all_streams()
+        .build();
+    let publisher_factory = test_context
+        .event_system
+        .create_stream::<TestEvent>(TEST_STREAM_NAME, TEST_CONFIG)
+        .unwrap();
+    let mut publisher = publisher_factory.try_create_publisher().unwrap();
+    let mut first_stream_subscriber = connect(&test_context, TEST_STREAM_NAME.as_str());
+
+    test_context
+        .event_system
+        .set_stream_policy("off".parse().unwrap());
+    assert!(available_stream_names(&test_context).is_empty());
+
+    test_context
+        .event_system
+        .set_stream_policy("on".parse().unwrap());
+    let mut second_stream_subscriber = connect(&test_context, TEST_STREAM_NAME.as_str());
+
+    publisher.publish(&TEST_EVENT).unwrap();
+    assert_is_empty([&mut first_stream_subscriber]);
+    assert_received([&mut second_stream_subscriber]);
+}
+
+#[cfg(target_os = "linux")]
+#[rstest]
+fn publisher_slots_are_reserved_while_disabled(#[values(1, 2)] publisher_slots: usize) {
+    let test_context = TestContextBuilder::new().build();
+    let stream_config = StreamConfig {
+        publisher_slots,
+        ..TEST_CONFIG
+    };
+    let publisher_factory = test_context
+        .event_system
+        .create_stream::<TestEvent>(TEST_STREAM_NAME, stream_config)
+        .unwrap();
+
+    let mut publishers: Vec<_> = (0..publisher_slots)
+        .map(|_| publisher_factory.try_create_publisher().unwrap())
+        .collect();
+    assert_matches!(publisher_factory.try_create_publisher(), None);
+
+    test_context
+        .event_system
+        .set_stream_policy("on".parse().unwrap());
+    let mut subscriber = connect(&test_context, TEST_STREAM_NAME.as_str());
+
+    for publisher in publishers.iter_mut() {
+        publisher.publish(&TEST_EVENT).unwrap();
+        assert_received([&mut subscriber]);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn publisher_slots_stay_retired_across_stream_policy_changes() {
+    let test_context = TestContextBuilder::new().build();
+    let publisher_factory = test_context
+        .event_system
+        .create_stream::<TestEvent>(TEST_STREAM_NAME, TEST_CONFIG)
+        .unwrap();
+
+    drop(publisher_factory.try_create_publisher().unwrap());
+    assert_matches!(publisher_factory.try_create_publisher(), None);
+
+    test_context
+        .event_system
+        .set_stream_policy("on".parse().unwrap());
+    assert_matches!(publisher_factory.try_create_publisher(), None);
 }
 
 #[rstest]

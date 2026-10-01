@@ -112,5 +112,5 @@ pub unsafe trait Event:
     /// This associated type works around the lack of stable generic const
     /// expressions. The [`event`] macro defines it as a byte array sized from
     /// [`SchemaDynamic::SERIALIZED_SIZE`].
-    type QueueCell: Copy + AsMut<[u8]>;
+    type QueueCell: Copy + Send + Sync + AsMut<[u8]>;
 }

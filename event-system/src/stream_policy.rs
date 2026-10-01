@@ -78,9 +78,14 @@ const OFF: &str = "off";
 ///
 /// # Disabled streams
 ///
-/// Events published by a [`Publisher`](crate::publisher::Publisher) on a disabled
-/// stream are dropped. Its [`Subscriber`](crate::subscriber::Subscriber)s
-/// do not receive those events, and enabling the stream later does not replay them.
+/// A disabled stream has no queue, so it is not visible to
+/// [`Subscriber`](crate::subscriber::Subscriber)s, and events published by a
+/// [`Publisher`](crate::publisher::Publisher) on it are dropped.
+///
+/// Disabling a stream drops its queue. Enabling it creates a new queue, which
+/// subscribers see as a new stream: subscribers of the previous queue receive
+/// no further events and must connect again, and events published while the
+/// stream was disabled are not replayed.
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct StreamPolicy {
     /// Rule to apply when no prefix matches the stream name.
