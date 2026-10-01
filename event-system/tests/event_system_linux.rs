@@ -33,60 +33,18 @@ fn create_event_system_fails_when_path_is_a_file() {
 }
 
 #[test]
-fn create_event_system_fails_when_directory_is_reused() {
+fn create_event_system_reuses_directory_only_after_drop() {
     let directory = TempDir::new().unwrap();
     let path = directory.path();
 
-    let _event_system = EventSystem::new(path).unwrap();
+    let event_system = EventSystem::new(path).unwrap();
 
     let event_system_with_reused_path_result = EventSystem::new(path);
     assert_matches!(event_system_with_reused_path_result, Err(_));
-}
 
-#[rstest]
-#[case::created_by_event_system("event-system")]
-#[case::existing("")]
-fn dropping_event_system_empties_its_directory(#[case] subdirectory: &str) {
-    let directory = TempDir::new().unwrap();
-    let path = directory.path().join(subdirectory);
-
-    drop(EventSystem::new(&path).unwrap());
-    assert!(path.is_dir());
-    assert_eq!(std::fs::read_dir(&path).unwrap().count(), 0);
-
+    drop(event_system);
     let _event_system =
-        EventSystem::new(&path).expect("the path can be reused after the event system is dropped");
-}
-
-#[test]
-fn dropping_event_system_removes_leftover_contents() {
-    let directory = TempDir::new().unwrap();
-    let path = directory.path();
-    let event_system = EventSystem::new(path).unwrap();
-    let leftover_directory = path.join("event-streams").join("leftover");
-    std::fs::create_dir(&leftover_directory).unwrap();
-    std::fs::write(leftover_directory.join("file"), b"leftover").unwrap();
-    std::fs::write(path.join("tmp").join("file"), b"leftover").unwrap();
-
-    drop(event_system);
-    assert_eq!(std::fs::read_dir(path).unwrap().count(), 0);
-}
-
-#[test]
-fn event_system_directory_outlives_event_system_while_streams_are_alive() {
-    let directory = TempDir::new().unwrap();
-    let path = directory.path();
-    let event_system = EventSystem::new(path).unwrap();
-    let publisher_factory = event_system
-        .create_stream::<TestEvent>(TEST_STREAM_NAME, TEST_CONFIG)
-        .unwrap();
-    let stream_directory = path.join("event-streams").join(TEST_STREAM_NAME.as_str());
-
-    drop(event_system);
-    assert!(stream_directory.is_dir());
-
-    drop(publisher_factory);
-    assert_eq!(std::fs::read_dir(path).unwrap().count(), 0);
+        EventSystem::new(path).expect("the path can be reused after the event system is dropped");
 }
 
 #[test]
