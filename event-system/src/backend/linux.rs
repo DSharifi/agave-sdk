@@ -66,7 +66,8 @@ pub(crate) type EventQueueError = shaq::error::Error;
 
 #[derive(Debug, Clone)]
 pub(crate) struct EventSystem {
-    event_system_directory: Arc<EventSystemDirectory>,
+    /// `None` for a stub, whose streams never have a queue.
+    event_system_directory: Option<Arc<EventSystemDirectory>>,
     stream_policy_manager: Arc<Mutex<StreamPolicyManager>>,
 }
 
@@ -85,9 +86,17 @@ impl EventSystem {
         let event_system_directory = EventSystemDirectory::create(event_system_directory.as_ref())?;
 
         Ok(Self {
-            event_system_directory: Arc::new(event_system_directory),
+            event_system_directory: Some(Arc::new(event_system_directory)),
             stream_policy_manager: Arc::new(Mutex::new(StreamPolicyManager::default())),
         })
+    }
+
+    /// Creates an event system without a directory, so its streams never have a queue.
+    pub(crate) fn stub() -> Self {
+        Self {
+            event_system_directory: None,
+            stream_policy_manager: Arc::new(Mutex::new(StreamPolicyManager::default())),
+        }
     }
 
     /// Creates a [`PublisherFactory`] for the given stream name and config.
@@ -237,13 +246,15 @@ struct EventStream<E: Event> {
     state: RwLock<StreamState<E>>,
     /// Declared after `state`, so the queue's directory is removed before the
     /// event-system directory layout.
-    event_system_directory: Arc<EventSystemDirectory>,
+    ///
+    /// `None` for a stub stream, which never has a queue.
+    event_system_directory: Option<Arc<EventSystemDirectory>>,
 }
 
 impl<E: Event> EventStream<E> {
     /// Creates a disabled stream, which has no queue until a stream rule enables it.
     fn new(
-        event_system_directory: Arc<EventSystemDirectory>,
+        event_system_directory: Option<Arc<EventSystemDirectory>>,
         stream_name: StreamName,
         stream_config: StreamConfig,
     ) -> Self {
@@ -266,9 +277,16 @@ impl<E: Event> PolicyControlledStream for EventStream<E> {
     }
 
     fn apply_stream_rule(&self, stream_rule: StreamRule) -> Result<(), CreateStreamError> {
+        // a stub stream has no directory to publish a queue in
+        let Some(event_system_directory) = &self.event_system_directory else {
+            return Ok(());
+        };
+
         let mut state = self.state.write().unwrap();
         match (stream_rule, &state.queue) {
-            (StreamRule::On, None) => state.queue = Some(StreamQueue::create(self)?),
+            (StreamRule::On, None) => {
+                state.queue = Some(StreamQueue::create(self, event_system_directory)?)
+            }
             (StreamRule::Off, Some(_)) => state.queue = None,
             // the stream already follows the rule
             (StreamRule::On, Some(_)) | (StreamRule::Off, None) => return Ok(()),
@@ -305,16 +323,17 @@ struct StreamQueue<E: Event> {
 }
 
 impl<E: Event> StreamQueue<E> {
-    /// Creates a new queue for `stream` and publishes it in the event system directory.
-    fn create(stream: &EventStream<E>) -> Result<Self, CreateStreamError> {
-        let event_stream_directory = stream
-            .event_system_directory
+    /// Creates a new queue for `stream` and publishes it in `event_system_directory`.
+    fn create(
+        stream: &EventStream<E>,
+        event_system_directory: &EventSystemDirectory,
+    ) -> Result<Self, CreateStreamError> {
+        let event_stream_directory = event_system_directory
             .path
             .join(STREAMS_DIRECTORY_NAME)
             .join(stream.stream_name.as_str());
 
-        let staging_directory = stream
-            .event_system_directory
+        let staging_directory = event_system_directory
             .path
             .join(STAGING_DIRECTORY_NAME)
             .join(stream.stream_name.as_str());

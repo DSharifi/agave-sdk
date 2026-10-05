@@ -1,6 +1,6 @@
 use {
     super::EventStream,
-    crate::{Event, publisher::PublishError},
+    crate::{Event, event_system::StreamConfig, publisher::PublishError, stream_name},
     shaq::broadcast::{Producer, ProducerId},
     std::{
         fmt::Debug,
@@ -114,6 +114,20 @@ impl<E: Event> Publisher<E> {
             queue_generation,
             producer,
         }
+    }
+
+    /// Creates a publisher on a stub stream, which never has a queue.
+    pub(crate) fn stub() -> Self {
+        let stream = EventStream::new(
+            None,
+            stream_name!("stub"),
+            StreamConfig {
+                capacity: 0,
+                publisher_slots: 0,
+                subscriber_slots: 0,
+            },
+        );
+        Self::new(Arc::new(stream), ProducerId::new(0), 0, None)
     }
 }
 

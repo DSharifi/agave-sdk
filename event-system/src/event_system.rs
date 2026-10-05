@@ -12,13 +12,7 @@ use {
 /// Owns an event-system directory and creates typed event streams within it.
 #[derive(Clone)]
 pub struct EventSystem {
-    backend: Backend,
-}
-
-#[derive(Clone)]
-enum Backend {
-    Platform(backend::EventSystem),
-    Stub(backend::stub::EventSystem),
+    backend: backend::EventSystem,
 }
 
 impl EventSystem {
@@ -34,18 +28,19 @@ impl EventSystem {
     ///   can be reused by a later call to [`EventSystem::new`].
     pub fn new(event_system_directory: impl AsRef<Path>) -> Result<Self, CreateEventSystemError> {
         Ok(Self {
-            backend: Backend::Platform(backend::EventSystem::new(event_system_directory)?),
+            backend: backend::EventSystem::new(event_system_directory)?,
         })
     }
 
     /// Creates a no-op event system on any platform, including Linux.
     ///
-    /// No filesystem access is performed. Streams ignore their configuration
-    /// and policy, and their factories always return publishers that discard
-    /// events without serializing them.
+    /// No filesystem access is performed and no queues are created, whatever
+    /// the stream policy, so publishers discard events without serializing
+    /// them. Stream names and publisher slots are otherwise checked as with
+    /// [`EventSystem::new`].
     pub fn stub() -> Self {
         Self {
-            backend: Backend::Stub(backend::stub::EventSystem),
+            backend: backend::EventSystem::stub(),
         }
     }
 
@@ -56,14 +51,9 @@ impl EventSystem {
         stream_name: StreamName,
         stream_config: StreamConfig,
     ) -> Result<PublisherFactory<E>, CreateStreamError> {
-        match &self.backend {
-            Backend::Platform(backend) => backend
-                .create_stream::<E>(stream_name, stream_config)
-                .map(PublisherFactory::new),
-            Backend::Stub(backend) => backend
-                .create_stream::<E>(stream_name, stream_config)
-                .map(PublisherFactory::stub),
-        }
+        self.backend
+            .create_stream::<E>(stream_name, stream_config)
+            .map(PublisherFactory::new)
     }
 
     /// Applies the given [`StreamPolicy`] on the streams created by this
@@ -72,19 +62,13 @@ impl EventSystem {
     /// The applied stream policy will also be applied to future stream creations
     /// of this event system.
     pub fn set_stream_policy(&self, stream_policy: StreamPolicy) {
-        match &self.backend {
-            Backend::Platform(backend) => backend.set_stream_policy(stream_policy),
-            Backend::Stub(backend) => backend.set_stream_policy(stream_policy),
-        }
+        self.backend.set_stream_policy(stream_policy)
     }
 }
 
 impl std::fmt::Debug for EventSystem {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.backend {
-            Backend::Platform(backend) => backend.fmt(formatter),
-            Backend::Stub(backend) => backend.fmt(formatter),
-        }
+        self.backend.fmt(formatter)
     }
 }
 

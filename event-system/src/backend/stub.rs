@@ -27,7 +27,7 @@ impl<E> Debug for Publisher<E> {
 }
 
 impl<E> Publisher<E> {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn stub() -> Self {
         Self { _data: PhantomData }
     }
 
@@ -54,6 +54,10 @@ impl EventSystem {
         Ok(Self)
     }
 
+    pub(crate) fn stub() -> Self {
+        Self
+    }
+
     pub(crate) fn create_stream<E: Event>(
         &self,
         _stream_name: StreamName,
@@ -77,7 +81,7 @@ impl<E: Event> PublisherFactory<E> {
     }
 
     pub(crate) fn try_create_publisher(&self) -> Option<Publisher<E>> {
-        Some(Publisher::new())
+        Some(Publisher { _data: PhantomData })
     }
 }
 
