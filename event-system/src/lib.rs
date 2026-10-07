@@ -18,7 +18,7 @@ pub use {
             CreateEventSystemError, CreateStreamError, EventQueueError, EventSystem, StreamConfig,
         },
         publisher_factory::PublisherFactory,
-        queue_cell::event_queue_cell_size,
+        queue_cell::{ByteArray, event_queue_cell_size},
         timestamp::monotonic_timestamp_ns,
     },
     agave_event_system_derive::event,
@@ -97,20 +97,11 @@ mod timestamp;
 ///     contents: String,
 /// }
 /// ```
-///
-/// # Safety
-///
-/// [`Event::QueueCell`] must be valid for every bit pattern, contain no
-/// uninitialized padding, and expose its complete representation through
-/// [`AsMut<[u8]>`]. The [`event`] macro satisfies these requirements by using
-/// `[u8; N]`.
-pub unsafe trait Event:
-    Sized + 'static + SchemaDynamic + SchemaWrite<DefaultConfig, Src = Self>
-{
+pub trait Event: Sized + 'static + SchemaDynamic + SchemaWrite<DefaultConfig, Src = Self> {
     /// The fixed-size storage used for an encoded event in a queue.
     ///
     /// This associated type works around the lack of stable generic const
     /// expressions. The [`event`] macro defines it as a byte array sized from
     /// [`SchemaDynamic::SERIALIZED_SIZE`].
-    type QueueCell: Copy + Send + Sync + AsMut<[u8]>;
+    type QueueCell: ByteArray;
 }

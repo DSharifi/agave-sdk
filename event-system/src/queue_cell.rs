@@ -1,5 +1,37 @@
 use wincode_dynamic::SerializedSize;
 
+/// This ByteArray trait is a workaround as [`generic-const-exprs`](https://doc.rust-lang.org/beta/unstable-book/language-features/generic-const-exprs.html)
+/// is not yet stable.
+///
+/// The trait is sealed, so only `[u8; N]` can be used as a queue cell:
+///
+/// ```compile_fail
+/// # use agave_event_system::{
+/// #     Event,
+/// #     wincode::{SchemaRead, SchemaWrite},
+/// #     wincode_dynamic::SchemaDynamic,
+/// # };
+/// #[derive(SchemaRead, SchemaWrite, SchemaDynamic)]
+/// #[wincode(crate = "agave_event_system::__private::event_macro")]
+/// struct Message {
+///     value: u64,
+/// }
+///
+/// impl Event for Message {
+///     type QueueCell = [u64; 1];
+/// }
+/// ```
+pub trait ByteArray: sealed::Sealed + Copy + Send + Sync + AsMut<[u8]> + 'static {}
+
+impl<const N: usize> ByteArray for [u8; N] {}
+
+/// internal module such that Sealed is only implemented for `[u8; N]` to keep ByteArray's contract
+mod sealed {
+    pub trait Sealed {}
+
+    impl<const N: usize> Sealed for [u8; N] {}
+}
+
 // The function is hidden from docs as it's only intended for macro expansion.
 #[doc(hidden)]
 pub const fn event_queue_cell_size(
