@@ -5,7 +5,9 @@ use {
         assert_is_empty, assert_received,
     },
     agave_event_system::{
-        StreamConfig, stream_name,
+        StreamConfig,
+        publisher::Publisher,
+        stream_name,
         subscriber::{self, Subscriber, Typed},
     },
 };
@@ -36,6 +38,39 @@ fn connect(test_context: &TestContext, stream_name: &str) -> Subscriber<Typed<Te
         .expect("stream should exist")
         .try_connect_typed::<TestEvent>()
         .unwrap()
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_publisher_stream_enabled() {
+    let test_context = TestContextBuilder::new()
+        .with_policy_enabling_all_streams()
+        .build();
+
+    let mut publisher: Publisher<TestEvent> = test_context
+        .event_system
+        .create_stream::<TestEvent>(TEST_STREAM_NAME, TEST_CONFIG)
+        .unwrap()
+        .try_create_publisher()
+        .unwrap();
+
+    test_context
+        .event_system
+        .set_stream_policy("off".parse().unwrap());
+
+    assert!(
+        !publisher.is_enabled(),
+        "policy is `off`, so stream should report as disabled"
+    );
+
+    test_context
+        .event_system
+        .set_stream_policy("on".parse().unwrap());
+
+    assert!(
+        publisher.is_enabled(),
+        "policy is `on`, so stream should report as enabled"
+    );
 }
 
 #[cfg(target_os = "linux")]

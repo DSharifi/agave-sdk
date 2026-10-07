@@ -33,6 +33,17 @@ impl<E: Event> Publisher<E> {
         }
     }
 
+    /// Returns whether the stream policy currently enables this publisher's stream.
+    ///
+    /// Checking this first lets callers skip building events that would be discarded
+    /// by [`Publisher::publish`] and  [`Publisher::publish_batch`].
+    pub fn is_enabled(&mut self) -> bool {
+        match &mut self.inner {
+            Backend::Platform(inner) => inner.is_enabled(),
+            Backend::Stub(inner) => inner.is_enabled(),
+        }
+    }
+
     /// Publishes the given batch of events on the stream.
     ///
     /// # Errors

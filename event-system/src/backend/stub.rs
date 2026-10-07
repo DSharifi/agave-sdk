@@ -38,6 +38,11 @@ impl<E> Publisher<E> {
     pub(crate) fn publish_batch(&mut self, _events: &[E]) -> Result<(), PublishError> {
         Ok(())
     }
+
+    /// stub implementation is always disabled
+    pub(crate) fn is_enabled(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
