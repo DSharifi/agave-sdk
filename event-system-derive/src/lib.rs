@@ -67,9 +67,7 @@ fn event_impl(
         #[wincode(crate = #event_macro_path)]
         #input
 
-        // SAFETY: QueueCell is a byte array, so every bit pattern is valid,
-        // it has no padding, and AsMut exposes its complete representation.
-        unsafe impl #event_system_crate::Event for #ident {
+        impl #event_system_crate::Event for #ident {
             type QueueCell = [u8; #event_system_crate::event_queue_cell_size(
                 <Self as #event_system_crate::wincode_dynamic::SchemaDynamic>::SERIALIZED_SIZE,
                 #max_serialized_size,
