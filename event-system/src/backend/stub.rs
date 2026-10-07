@@ -149,22 +149,22 @@ impl<'a> StreamMessage<'a> {
         self.payload
     }
 
-    pub(crate) fn publisher_metadata(&self) -> PublisherMetadata<'_> {
-        PublisherMetadata(PhantomData)
+    pub(crate) fn publisher_thread_id(&self) -> u32 {
+        0
+    }
+
+    pub(crate) fn lane_metadata(&self) -> LaneMetadata<'_> {
+        LaneMetadata(PhantomData)
     }
 }
 
 // 'a lifetime is there to match the `linux` backend, where the metadata is
 // borrowed from the queue's shared memory.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct PublisherMetadata<'a>(PhantomData<&'a ()>);
+pub(crate) struct LaneMetadata<'a>(PhantomData<&'a ()>);
 
-impl PublisherMetadata<'_> {
+impl LaneMetadata<'_> {
     pub(crate) fn lane(&self) -> usize {
-        0
-    }
-
-    pub(crate) fn thread_id(&self) -> u64 {
         0
     }
 

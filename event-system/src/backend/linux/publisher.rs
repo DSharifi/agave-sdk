@@ -1,7 +1,10 @@
 use {
-    super::EventStream,
-    crate::{Event, publisher::PublishError},
-    shaq::broadcast::{Producer, ProducerId},
+    super::{EventProducer, EventStream},
+    crate::{
+        Event,
+        event_message::{self, ThreadId},
+        publisher::PublishError,
+    },
     std::{
         fmt::Debug,
         num::NonZeroUsize,
@@ -9,14 +12,22 @@ use {
     },
 };
 
+thread_local! {
+    /// The cached id of the current thread to avoid syscalls
+    static THREAD_ID: ThreadId = {
+        let thread_id: i32 = nix::unistd::gettid().as_raw();
+        ThreadId::try_from(thread_id)
+            .expect("gettid man page: `call is always sucessful`, meaning a positive i32 is returned")
+    }
+}
+
 /// Publishes events of a specific type to a stream.
 pub(crate) struct Publisher<E: Event> {
     stream: Arc<EventStream<E>>,
-    producer_id: ProducerId,
     /// The generation of the stream's queue that `producer` belongs to.
     queue_generation: u64,
     /// The producer on the stream's queue, which is `None` while the stream is disabled.
-    producer: Option<Producer<E::QueueCell>>,
+    producer: Option<EventProducer<E>>,
 }
 
 impl<E: Event> Publisher<E> {
@@ -25,18 +36,23 @@ impl<E: Event> Publisher<E> {
             // the stream is disabled
             return Ok(());
         };
+        let thread_id = THREAD_ID.with(|thread_id| *thread_id);
 
         // SAFETY: write_guard is initialized below before it is dropped by going out of scope.
         let mut write_guard =
             unsafe { producer.try_reserve_write() }.ok_or(PublishError::FailedToSend)?;
 
         let write_guard_cell = write_guard.as_mut();
-        // SAFETY: the inner cell contains [u8; N] which is valid for every bit pattern.
-        let cell = unsafe { write_guard_cell.assume_init_mut() };
+        // SAFETY: `MessageCell` is a padding-free `repr(C)` struct of byte arrays (the header and a
+        // sealed `ByteArray`), so every bit pattern is a valid value.
+        let message_cell: &mut event_message::MessageCell<<E as Event>::QueueCell> =
+            unsafe { write_guard_cell.assume_init_mut() };
 
         // if serialization fails we still send incomplete bytes, as drop implementation of
         // write_guard does the sending.
-        wincode::serialize_into(cell.as_mut(), &event).map_err(PublishError::Serialization)?;
+        message_cell
+            .write(thread_id, event)
+            .map_err(PublishError::Serialization)?;
 
         Ok(())
     }
@@ -58,6 +74,7 @@ impl<E: Event> Publisher<E> {
             // the stream is disabled
             return Ok(());
         };
+        let thread_id = THREAD_ID.with(|thread_id| *thread_id);
 
         // SAFETY: write_guard cells are initialized in the loop below before it is dropped by going out of scope.
         let mut write_guard = unsafe { producer.try_reserve_write_batch(event_count) }
@@ -66,12 +83,16 @@ impl<E: Event> Publisher<E> {
         for (i, event) in events.iter().enumerate() {
             // SAFETY: i < events.len() which is the batch size
             let write_guard_cell = unsafe { write_guard.as_mut(i) };
-            // SAFETY: the inner cell contains [u8; N] which is valid for every bit pattern.
-            let cell = unsafe { write_guard_cell.assume_init_mut() };
+            // SAFETY: `MessageCell` is a padding-free `repr(C)` struct of byte arrays (the header and a
+            // sealed `ByteArray`), so every bit pattern is a valid value.
+            let message_cell: &mut event_message::MessageCell<<E as Event>::QueueCell> =
+                unsafe { write_guard_cell.assume_init_mut() };
 
             // if serialization fails we still send incomplete bytes, as drop implementation of
             // write_guard does the sending.
-            wincode::serialize_into(cell.as_mut(), &event).map_err(PublishError::Serialization)?;
+            message_cell
+                .write(thread_id, event)
+                .map_err(PublishError::Serialization)?;
         }
 
         Ok(())
@@ -80,7 +101,7 @@ impl<E: Event> Publisher<E> {
     /// Returns the producer on the stream's current queue, or `None` while the
     /// stream is disabled.
     #[inline]
-    fn producer(&mut self) -> Option<&mut Producer<E::QueueCell>> {
+    fn producer(&mut self) -> Option<&mut EventProducer<E>> {
         if self.stream.queue_generation.load(Ordering::Relaxed) != self.queue_generation {
             self.replace_producer();
         }
@@ -97,20 +118,18 @@ impl<E: Event> Publisher<E> {
 
         let stream_state = self.stream.state.read().unwrap();
         self.queue_generation = self.stream.queue_generation.load(Ordering::Relaxed);
-        self.producer = stream_state.create_producer(self.producer_id);
+        self.producer = stream_state.create_producer();
     }
 }
 
 impl<E: Event> Publisher<E> {
     pub(super) fn new(
         stream: Arc<EventStream<E>>,
-        producer_id: ProducerId,
         queue_generation: u64,
-        producer: Option<Producer<E::QueueCell>>,
+        producer: Option<EventProducer<E>>,
     ) -> Self {
         Self {
             stream,
-            producer_id,
             queue_generation,
             producer,
         }
@@ -120,7 +139,6 @@ impl<E: Event> Publisher<E> {
 impl<E: Event> Debug for Publisher<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Publisher")
-            .field("producer_id", &self.producer_id)
             .field("producer", &self.producer)
             .finish_non_exhaustive()
     }

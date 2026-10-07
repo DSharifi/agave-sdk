@@ -2,6 +2,7 @@ use {
     crate::{
         Event,
         cache_padded::CachePadded,
+        event_message::MessageCell,
         event_system::{
             CreateEventSystemError, CreateStreamError, EventQueueError as PublicEventQueueError,
             StreamConfig,
@@ -27,7 +28,7 @@ use {
 };
 pub(crate) use {
     publisher::Publisher,
-    subscriber::{AvailableStream, PublisherMetadata, StreamExplorer, StreamMessage, Subscriber},
+    subscriber::{AvailableStream, LaneMetadata, StreamExplorer, StreamMessage, Subscriber},
 };
 
 #[path = "linux/publisher.rs"]
@@ -63,6 +64,13 @@ const REQUIRED_SEALS: libc::c_int = libc::F_SEAL_SHRINK | libc::F_SEAL_GROW | li
 const ANONYMOUS_FILE_NAME: *const libc::c_char = c"agave-event-stream".as_ptr();
 
 pub(crate) type EventQueueError = shaq::error::Error;
+
+const BOGUS_PRODUCER_ID: ProducerId = ProducerId::new(0);
+
+/// The broadcast queue of a stream of `E`.
+type EventQueue<E> = Broadcast<MessageCell<<E as Event>::QueueCell>>;
+/// A producer on the broadcast queue of a stream of `E`.
+type EventProducer<E> = Producer<MessageCell<<E as Event>::QueueCell>>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct EventSystem {
@@ -126,7 +134,7 @@ impl EventSystem {
 fn create_sealed_queue<E: Event>(
     stream_config: StreamConfig,
     queue_identifier: u64,
-) -> Result<(Broadcast<E::QueueCell>, File), CreateStreamError> {
+) -> Result<(EventQueue<E>, File), CreateStreamError> {
     let broadcast_config = BroadcastConfig {
         capacity: stream_config.capacity,
         producer_slots: stream_config.publisher_slots,
@@ -157,7 +165,7 @@ fn create_sealed_queue<E: Event>(
     // - memfd_create returned a new anonymous file, so this call uniquely
     //   initializes it.
     // - the file is sealed against resizing below.
-    // - E::QueueCell guarantees Broadcast::create's T type requirements.
+    // - MessageCell only holds byte arrays, so it is valid in every process that reads it.
     let broadcast = unsafe {
         Broadcast::create_with_identifier(&queue_file, broadcast_config, queue_identifier)
     }
@@ -176,25 +184,15 @@ pub(crate) struct PublisherFactory<E: Event> {
 
 impl<E: Event> PublisherFactory<E> {
     pub(crate) fn try_create_publisher(&self) -> Option<Publisher<E>> {
-        // SAFETY: gettid id is always safe to call
-        let thread_id: i32 = unsafe { libc::gettid() };
-
-        let thread_id = u64::try_from(thread_id).expect(
-            "gettid man page: `call is always sucessful`, meaning a positive i32 is returned",
-        );
-
-        let producer_id = ProducerId::new(thread_id);
-
         let mut stream_state = self.stream.state.write().unwrap();
         stream_state.remaining_publisher_slots =
             stream_state.remaining_publisher_slots.checked_sub(1)?;
-        let producer = stream_state.create_producer(producer_id);
+        let producer = stream_state.create_producer();
         let queue_generation = self.stream.queue_generation.load(Ordering::Relaxed);
         drop(stream_state);
 
         Some(Publisher::new(
             self.stream.clone(),
-            producer_id,
             queue_generation,
             producer,
         ))
@@ -289,8 +287,12 @@ struct StreamState<E: Event> {
 
 impl<E: Event> StreamState<E> {
     /// Creates a producer on the queue, or returns `None` while the stream is disabled.
-    fn create_producer(&self, producer_id: ProducerId) -> Option<Producer<E::QueueCell>> {
-        self.queue.as_ref()?.broadcast.producer(producer_id).ok()
+    fn create_producer(&self) -> Option<EventProducer<E>> {
+        self.queue
+            .as_ref()?
+            .broadcast
+            .producer(BOGUS_PRODUCER_ID)
+            .ok()
     }
 }
 
@@ -298,7 +300,7 @@ impl<E: Event> StreamState<E> {
 ///
 /// Keeps the queue's backing file alive and removes its directory on drop.
 struct StreamQueue<E: Event> {
-    broadcast: Broadcast<E::QueueCell>,
+    broadcast: EventQueue<E>,
     event_stream_directory: Box<Path>,
     // keeps the anonymous file alive
     _queue_file: File,

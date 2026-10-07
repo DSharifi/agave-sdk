@@ -117,9 +117,14 @@ impl<Mode> std::fmt::Debug for StreamMessage<'_, Mode> {
 }
 
 impl<'a, Mode> StreamMessage<'a, Mode> {
-    /// [`PublisherMetadata`] of the publisher of this message.
-    pub fn publisher_metadata(&self) -> PublisherMetadata<'_> {
-        PublisherMetadata(self.backend.publisher_metadata())
+    /// The thread id of the publisher that sent this message.
+    pub fn publisher_thread_id(&self) -> u32 {
+        self.backend.publisher_thread_id()
+    }
+
+    /// [`LaneMetadata`] of the lane this message was published on.
+    pub fn lane_metadata(&self) -> LaneMetadata<'_> {
+        LaneMetadata(self.backend.lane_metadata())
     }
 
     fn new(backend: backend::StreamMessage<'a>) -> Self {
@@ -158,22 +163,17 @@ impl<'a> StreamMessage<'a, Dynamic> {
     }
 }
 
-/// Metadata of the [`Publisher`](crate::publisher::Publisher) lane that a [`StreamMessage`] was published on.
+/// Metadata of the lane that a [`StreamMessage`] was published on.
 #[derive(Clone, Copy, Debug)]
-pub struct PublisherMetadata<'a>(backend::PublisherMetadata<'a>);
+pub struct LaneMetadata<'a>(backend::LaneMetadata<'a>);
 
-impl PublisherMetadata<'_> {
-    /// The lane of the publisher that sent this event.
+impl LaneMetadata<'_> {
+    /// The index of the lane.
     pub fn lane(&self) -> usize {
         self.0.lane()
     }
 
-    /// The thread id of the publisher that sent the event.
-    pub fn thread_id(&self) -> u64 {
-        self.0.thread_id()
-    }
-
-    /// The number of events the publisher could not publish on this lane because
+    /// The number of events publishers could not publish on this lane because
     /// subscribers did not consume them fast enough.
     pub fn rejected_items(&self) -> u64 {
         self.0.rejected_items()
@@ -261,6 +261,8 @@ pub struct SchemaMismatch {
 pub enum TryConnectError {
     #[error("the stream has no available subscriber slots")]
     SubscriberSlotsExhausted,
+    #[error("the stream's queue cells are too small to contain a message")]
+    IncompatibleMessageLayout,
 }
 
 /// A decoded dynamically typed message. Messages can either be an enum or a struct.

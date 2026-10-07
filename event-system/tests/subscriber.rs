@@ -39,8 +39,8 @@ fn recv_timeout_returns_already_published_message() {
     let test_context = TestContextBuilder::new()
         .with_policy_enabling_all_streams()
         .build();
-    let (publisher_factory, mut subscriber) = test_context.create_stream_with_subscriber();
-    let mut publisher = publisher_factory.try_create_publisher().unwrap();
+    let (mut publisher, mut subscriber) = test_context.create_stream_with_subscriber();
+
     publisher.publish(&TEST_EVENT).unwrap();
 
     let received_event = subscriber

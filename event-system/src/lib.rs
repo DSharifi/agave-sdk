@@ -45,8 +45,10 @@ pub mod __private {
 }
 
 mod backend;
-#[cfg(target_os = "linux")] // cache_padded is only used by linux backend as of now
+#[cfg(target_os = "linux")]
 pub(crate) mod cache_padded;
+#[cfg(target_os = "linux")]
+pub(crate) mod event_message;
 mod event_system;
 mod publisher_factory;
 mod queue_cell;

@@ -11,7 +11,7 @@ use {
             self, AvailableStream, DecodedMessage, TryConnectError, TryConnectTypedError,
         },
     },
-    common::{TEST_CONFIG, TEST_STREAM_NAME, TestEnumEvent, TestEvent},
+    common::{TEST_CONFIG, TEST_EVENT, TEST_STREAM_NAME, TestEnumEvent, TestEvent},
     rstest::rstest,
     std::assert_matches,
     tempfile::TempDir,
@@ -221,4 +221,29 @@ fn dynamic_subscriber_can_connect_and_decode_events<E: Event>(
     assert_eq!(field.name(), "value");
     assert_eq!(field.value(), &Value::U64(42));
     assert!(fields.next().is_none(), "no extra fields are present");
+}
+
+#[test]
+fn messages_carry_the_thread_id_of_the_publishing_thread() {
+    let test_context = TestContextBuilder::new()
+        .with_policy_enabling_all_streams()
+        .build();
+
+    let (mut publisher, mut subscriber) = test_context.create_stream_with_subscriber();
+
+    let publishing_thread_id = std::thread::spawn(move || {
+        publisher.publish(&TEST_EVENT).unwrap();
+        publisher.publish_batch(&[TEST_EVENT, TEST_EVENT]).unwrap();
+        // SAFETY: gettid is always safe to call
+        let thread_id = unsafe { libc::gettid() };
+        u32::try_from(thread_id).unwrap()
+    })
+    .join()
+    .unwrap();
+
+    for _ in 0..3 {
+        let message = subscriber.try_recv().unwrap();
+        assert_eq!(message.publisher_thread_id(), publishing_thread_id);
+        assert_eq!(message.decode().unwrap(), TEST_EVENT);
+    }
 }

@@ -1,6 +1,7 @@
 use {
     super::{QUEUE_FILE_NAME_PREFIX, REQUIRED_SEALS, SCHEMA_FILE_NAME, STREAMS_DIRECTORY_NAME},
     crate::{
+        event_message::{MESSAGE_HEADER_SIZE, RawMessage, ThreadId},
         stream_name::{StreamName, StreamNameValidationError},
         subscriber::{RecvTimeoutError, TryConnectError, TryRecvError},
     },
@@ -10,7 +11,7 @@ use {
         sys::stat::Mode,
     },
     shaq::{
-        broadcast::{Broadcast, LaneMetadata, SliceReadGuard, UnknownType},
+        broadcast::{Broadcast, SliceReadGuard, UnknownType},
         error::WaitError,
     },
     std::{
@@ -78,24 +79,29 @@ impl<'a> StreamMessage<'a> {
     }
 
     pub(crate) fn payload(&self) -> &[u8] {
-        self.read_guard.as_slice()
+        self.raw_message().event()
     }
 
-    pub(crate) fn publisher_metadata(&self) -> PublisherMetadata<'_> {
-        PublisherMetadata(self.read_guard.lane_metadata())
+    pub(crate) fn publisher_thread_id(&self) -> ThreadId {
+        self.raw_message().thread_id()
+    }
+
+    pub(crate) fn lane_metadata(&self) -> LaneMetadata<'_> {
+        LaneMetadata(self.read_guard.lane_metadata())
+    }
+
+    fn raw_message(&self) -> RawMessage<'_> {
+        RawMessage::new(self.read_guard.as_slice())
+            .expect("try_connect checked that the messages are big enough to contain the header")
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct PublisherMetadata<'a>(LaneMetadata<'a>);
+pub(crate) struct LaneMetadata<'a>(shaq::broadcast::LaneMetadata<'a>);
 
-impl PublisherMetadata<'_> {
+impl LaneMetadata<'_> {
     pub(crate) fn lane(&self) -> usize {
         self.0.lane()
-    }
-
-    pub(crate) fn thread_id(&self) -> u64 {
-        self.0.producer_id().get()
     }
 
     pub(crate) fn rejected_items(&self) -> u64 {
@@ -149,6 +155,10 @@ impl AvailableStream {
         let Ok(slice_consumer) = slice_consumer_result else {
             return Err(TryConnectError::SubscriberSlotsExhausted);
         };
+
+        if slice_consumer.payload_size() < MESSAGE_HEADER_SIZE {
+            return Err(TryConnectError::IncompatibleMessageLayout);
+        }
 
         Ok(Subscriber {
             slice_consumer,
@@ -251,8 +261,8 @@ fn open_queue(
 
     // SAFETY:
     // - file is a live broadcast queue, and checked above to be sealed against resizing.
-    // - the payload, Event::QueueCell guarantees fully byte initialization.
-    // - Event::QueueCell can always be decoded as bytes.
+    // - the payload, MessageCell, only holds byte arrays, so it is fully byte
+    //   initialized and can always be decoded as bytes.
     let broadcast_handle = unsafe { Broadcast::join_untyped(&queue_file) }?;
 
     let actual_broadcast_identifier = broadcast_handle.queue_identifier();
