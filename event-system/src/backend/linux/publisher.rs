@@ -99,6 +99,10 @@ impl<E: Event> Publisher<E> {
         self.queue_generation = self.stream.queue_generation.load(Ordering::Relaxed);
         self.producer = stream_state.create_producer(self.producer_id);
     }
+
+    pub(crate) fn is_enabled(&mut self) -> bool {
+        self.producer().is_some()
+    }
 }
 
 impl<E: Event> Publisher<E> {
