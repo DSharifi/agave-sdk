@@ -1,7 +1,7 @@
 use {
     super::EventStream,
     crate::{Event, publisher::PublishError},
-    shaq::broadcast::{Producer, ProducerId},
+    shaq::broadcast::Producer,
     std::{
         fmt::Debug,
         num::NonZeroUsize,
@@ -12,7 +12,6 @@ use {
 /// Publishes events of a specific type to a stream.
 pub(crate) struct Publisher<E: Event> {
     stream: Arc<EventStream<E>>,
-    producer_id: ProducerId,
     /// The generation of the stream's queue that `producer` belongs to.
     queue_generation: u64,
     /// The producer on the stream's queue, which is `None` while the stream is disabled.
@@ -97,7 +96,7 @@ impl<E: Event> Publisher<E> {
 
         let stream_state = self.stream.state.read().unwrap();
         self.queue_generation = self.stream.queue_generation.load(Ordering::Relaxed);
-        self.producer = stream_state.create_producer(self.producer_id);
+        self.producer = stream_state.create_producer();
     }
 
     pub(crate) fn is_enabled(&mut self) -> bool {
@@ -108,13 +107,11 @@ impl<E: Event> Publisher<E> {
 impl<E: Event> Publisher<E> {
     pub(super) fn new(
         stream: Arc<EventStream<E>>,
-        producer_id: ProducerId,
         queue_generation: u64,
         producer: Option<Producer<E::QueueCell>>,
     ) -> Self {
         Self {
             stream,
-            producer_id,
             queue_generation,
             producer,
         }
@@ -124,7 +121,6 @@ impl<E: Event> Publisher<E> {
 impl<E: Event> Debug for Publisher<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Publisher")
-            .field("producer_id", &self.producer_id)
             .field("producer", &self.producer)
             .finish_non_exhaustive()
     }

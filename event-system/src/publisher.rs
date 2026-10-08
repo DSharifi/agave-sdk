@@ -1,16 +1,11 @@
 use {
     crate::{Event, backend},
-    std::{fmt::Debug, marker::PhantomData, rc::Rc},
+    std::fmt::Debug,
 };
 
 /// Publishes events of a specific type to a stream.
-///
-/// [`Publisher<T>`] is [`!Send`](Send) + [`!Sync`](Sync), as a publisher is associated
-/// with a thread for its entire lifetime.
 pub struct Publisher<E: Event> {
     inner: Backend<E>,
-    //  `Rc` is !Send + !Sync, which makes Publisher<E> also neither
-    _not_send_or_sync: PhantomData<Rc<()>>,
 }
 
 enum Backend<E: Event> {
@@ -61,13 +56,11 @@ impl<E: Event> Publisher<E> {
     pub(crate) fn new(inner: backend::Publisher<E>) -> Self {
         Self {
             inner: Backend::Platform(inner),
-            _not_send_or_sync: PhantomData,
         }
     }
     pub(crate) fn from_stub(inner: backend::stub::Publisher<E>) -> Self {
         Self {
             inner: Backend::Stub(inner),
-            _not_send_or_sync: PhantomData,
         }
     }
 }

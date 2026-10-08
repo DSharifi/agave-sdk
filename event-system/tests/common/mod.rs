@@ -6,7 +6,8 @@
 
 use {
     agave_event_system::{
-        EventSystem, PublisherFactory, StreamConfig, event,
+        EventSystem, StreamConfig, event,
+        publisher::Publisher,
         stream_name::StreamName,
         stream_policy::StreamPolicy,
         subscriber::{StreamExplorer, Subscriber, TryRecvError, Typed},
@@ -88,14 +89,14 @@ impl TestContext {
     }
 
     /// Creates [`TEST_STREAM_NAME`] with [`TEST_CONFIG`] and connects a typed subscriber to it.
-    ///
-    /// Returns the [`PublisherFactory`] rather than a publisher, since publishers are not `Send`.
     pub(crate) fn create_stream_with_subscriber(
         &self,
-    ) -> (PublisherFactory<TestEvent>, Subscriber<Typed<TestEvent>>) {
-        let publisher_factory = self
+    ) -> (Publisher<TestEvent>, Subscriber<Typed<TestEvent>>) {
+        let publisher = self
             .event_system
             .create_stream(TEST_STREAM_NAME, TEST_CONFIG)
+            .unwrap()
+            .try_create_publisher()
             .unwrap();
         let subscriber = StreamExplorer::new(self.event_system_path())
             .available_streams()
@@ -104,6 +105,6 @@ impl TestContext {
             .try_connect_typed::<TestEvent>()
             .unwrap();
 
-        (publisher_factory, subscriber)
+        (publisher, subscriber)
     }
 }

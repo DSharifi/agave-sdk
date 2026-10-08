@@ -94,10 +94,6 @@ impl PublisherMetadata<'_> {
         self.0.lane()
     }
 
-    pub(crate) fn thread_id(&self) -> u64 {
-        self.0.producer_id().get()
-    }
-
     pub(crate) fn rejected_items(&self) -> u64 {
         self.0.rejected_items()
     }
