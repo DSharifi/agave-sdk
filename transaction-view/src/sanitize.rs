@@ -33,6 +33,7 @@ pub(crate) fn sanitize(
 }
 
 /// Checks that only concern the message.
+#[inline]
 fn sanitize_message_body(
     view: UnsanitizedMessageViewRef<'_>,
     config: &SanitizeConfig,
@@ -65,6 +66,7 @@ fn sanitize_transaction_size(
 /// * num_required_signatures >= 1
 /// * num_readonly_signed_accounts < num_required_signatures (fee payer must be writable)
 /// * num_readonly_unsigned_accounts <= (num_addresses - num_required_signatures)
+#[inline]
 fn sanitize_message_header(view: UnsanitizedMessageViewRef<'_>) -> Result<()> {
     if view.num_required_signatures() < 1 {
         return Err(TransactionViewError::SanitizeError);
@@ -90,6 +92,7 @@ fn sanitize_message_header(view: UnsanitizedMessageViewRef<'_>) -> Result<()> {
 
 /// Config Constraints:
 /// * heap_size must be multiples of 1024, if specified
+#[inline]
 fn sanitize_config(view: UnsanitizedMessageViewRef<'_>, config: &SanitizeConfig) -> Result<()> {
     if let Some(requested_heap_bytes) = view
         .transaction_config()
@@ -117,6 +120,7 @@ fn sanitize_signatures(view: &UnsanitizedTransactionView<impl TransactionData>) 
 
 /// Required Signatures Constraint:
 /// * Max signatures <= 12
+#[inline]
 fn sanitize_required_signatures(view: UnsanitizedMessageViewRef<'_>) -> Result<()> {
     if view.num_required_signatures() > MAX_SIGNATURES_PER_PACKET {
         return Err(TransactionViewError::SanitizeError);
@@ -135,6 +139,7 @@ fn sanitize_required_signatures(view: UnsanitizedMessageViewRef<'_>) -> Result<(
 /// * for v1: 1 <= NumAddresses <= 64
 ///   * legacy/v0 uses current limits of: num_accounts <= 256 (u8 bound)
 /// * No duplicate addresses
+#[inline]
 fn sanitize_account_access(view: UnsanitizedMessageViewRef<'_>) -> Result<()> {
     let addresses_limit = match view.version() {
         TransactionVersion::Legacy | TransactionVersion::V0 => 256,
@@ -157,6 +162,7 @@ fn sanitize_account_access(view: UnsanitizedMessageViewRef<'_>) -> Result<()> {
 /// * Per instruction:
 ///   * 0 < program_id_index < MaxProgramIdIndex
 ///   * all account indices < MaxAccountIndex
+#[inline]
 fn sanitize_instructions(
     view: UnsanitizedMessageViewRef<'_>,
     config: &SanitizeConfig,
@@ -197,6 +203,7 @@ fn sanitize_instructions(
     Ok(())
 }
 
+#[inline]
 fn sanitize_address_table_lookups(view: UnsanitizedMessageViewRef<'_>) -> Result<()> {
     for address_table_lookup in view.address_table_lookup_iter() {
         // Check that there is at least one account lookup.
@@ -210,6 +217,7 @@ fn sanitize_address_table_lookups(view: UnsanitizedMessageViewRef<'_>) -> Result
     Ok(())
 }
 
+#[inline]
 fn total_number_of_accounts(view: UnsanitizedMessageViewRef<'_>) -> u16 {
     u16::from(view.num_static_account_keys())
         .saturating_add(view.total_writable_lookup_accounts())

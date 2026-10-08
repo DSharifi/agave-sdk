@@ -137,6 +137,7 @@ impl<'a, const SANITIZED: bool> MessageViewRef<'a, SANITIZED> {
 // Implementation that relies on sanitization checks having been run.
 impl<'a> MessageViewRef<'a, true> {
     /// Return an iterator over the instructions paired with their program ids.
+    #[inline]
     pub(crate) fn program_instructions_iter(
         &self,
     ) -> impl Iterator<Item = (&'a Pubkey, SVMInstruction<'a>)> + Clone + use<'a> {
