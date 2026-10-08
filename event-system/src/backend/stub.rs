@@ -169,10 +169,6 @@ impl PublisherMetadata<'_> {
         0
     }
 
-    pub(crate) fn thread_id(&self) -> u64 {
-        0
-    }
-
     pub(crate) fn rejected_items(&self) -> u64 {
         0
     }

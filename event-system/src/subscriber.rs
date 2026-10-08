@@ -168,11 +168,6 @@ impl PublisherMetadata<'_> {
         self.0.lane()
     }
 
-    /// The thread id of the publisher that sent the event.
-    pub fn thread_id(&self) -> u64 {
-        self.0.thread_id()
-    }
-
     /// The number of events the publisher could not publish on this lane because
     /// subscribers did not consume them fast enough.
     pub fn rejected_items(&self) -> u64 {

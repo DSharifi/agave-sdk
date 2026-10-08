@@ -64,6 +64,10 @@ const ANONYMOUS_FILE_NAME: *const libc::c_char = c"agave-event-stream".as_ptr();
 
 pub(crate) type EventQueueError = shaq::error::Error;
 
+/// Producer id passed to shaq for every publisher, as the event system does not
+/// identify publishers.
+const PRODUCER_ID: ProducerId = ProducerId::new(0);
+
 #[derive(Debug, Clone)]
 pub(crate) struct EventSystem {
     event_system_directory: Arc<EventSystemDirectory>,
@@ -176,25 +180,15 @@ pub(crate) struct PublisherFactory<E: Event> {
 
 impl<E: Event> PublisherFactory<E> {
     pub(crate) fn try_create_publisher(&self) -> Option<Publisher<E>> {
-        // SAFETY: gettid id is always safe to call
-        let thread_id: i32 = unsafe { libc::gettid() };
-
-        let thread_id = u64::try_from(thread_id).expect(
-            "gettid man page: `call is always sucessful`, meaning a positive i32 is returned",
-        );
-
-        let producer_id = ProducerId::new(thread_id);
-
         let mut stream_state = self.stream.state.write().unwrap();
         stream_state.remaining_publisher_slots =
             stream_state.remaining_publisher_slots.checked_sub(1)?;
-        let producer = stream_state.create_producer(producer_id);
+        let producer = stream_state.create_producer();
         let queue_generation = self.stream.queue_generation.load(Ordering::Relaxed);
         drop(stream_state);
 
         Some(Publisher::new(
             self.stream.clone(),
-            producer_id,
             queue_generation,
             producer,
         ))
@@ -289,8 +283,8 @@ struct StreamState<E: Event> {
 
 impl<E: Event> StreamState<E> {
     /// Creates a producer on the queue, or returns `None` while the stream is disabled.
-    fn create_producer(&self, producer_id: ProducerId) -> Option<Producer<E::QueueCell>> {
-        self.queue.as_ref()?.broadcast.producer(producer_id).ok()
+    fn create_producer(&self) -> Option<Producer<E::QueueCell>> {
+        self.queue.as_ref()?.broadcast.producer(PRODUCER_ID).ok()
     }
 }
 
