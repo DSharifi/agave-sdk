@@ -19,7 +19,6 @@ pub use {
         },
         publisher_factory::PublisherFactory,
         queue_cell::{ByteArray, event_queue_cell_size},
-        timestamp::monotonic_timestamp_ns,
     },
     agave_event_system_derive::event,
 };
@@ -30,6 +29,7 @@ use {
     wincode_dynamic::SchemaDynamic,
 };
 
+pub mod event_metadata;
 pub mod publisher;
 pub mod stream_name;
 pub mod stream_policy;
@@ -50,7 +50,6 @@ pub(crate) mod cache_padded;
 mod event_system;
 mod publisher_factory;
 mod queue_cell;
-mod timestamp;
 
 /// An event type that can be sent on an event stream.
 ///
