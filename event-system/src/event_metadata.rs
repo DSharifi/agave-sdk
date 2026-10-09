@@ -43,6 +43,8 @@ pub fn monotonic_timestamp_ns() -> u64 {
 /// The ids are cached so subsequent lookups on the same thread
 /// perform no sys calls.
 ///
+/// Returns zero for both ids on non-Linux targets, where the event system is a no-op.
+///
 /// #### Forking
 /// The ids are cached per thread. That means calling this method after a `fork()`
 /// will return the parent's value.
