@@ -33,9 +33,9 @@ impl<E: Event> Publisher<E> {
         // SAFETY: the inner cell contains [u8; N] which is valid for every bit pattern.
         let cell = unsafe { write_guard_cell.assume_init_mut() };
 
-        // if serialization fails we still send incomplete bytes, as drop implementation of
-        // write_guard does the sending.
+        // if serialization fails, write_guard is dropped without publishing, so nothing is sent.
         wincode::serialize_into(cell.as_mut(), &event).map_err(PublishError::Serialization)?;
+        write_guard.publish();
 
         Ok(())
     }
@@ -43,10 +43,8 @@ impl<E: Event> Publisher<E> {
     /// Publishes the given batch of events.
     ///
     /// # Errors
-    /// If any event in the batch fails to send, [`PublishError`] is returned
-    /// and the remaining events in the batch are dropped.
-    ///
-    /// The events previous to the failing event are all sent.
+    /// If the batch fails to send or any event in it fails to serialize,
+    /// [`PublishError`] is returned and none of the events in the batch are sent.
     pub(crate) fn publish_batch(&mut self, events: &[E]) -> Result<(), PublishError> {
         let Ok(event_count) = NonZeroUsize::try_from(events.len()) else {
             // nothing to write
@@ -68,10 +66,11 @@ impl<E: Event> Publisher<E> {
             // SAFETY: the inner cell contains [u8; N] which is valid for every bit pattern.
             let cell = unsafe { write_guard_cell.assume_init_mut() };
 
-            // if serialization fails we still send incomplete bytes, as drop implementation of
-            // write_guard does the sending.
+            // if serialization fails, write_guard is dropped without publishing, so nothing in
+            // the batch is sent.
             wincode::serialize_into(cell.as_mut(), &event).map_err(PublishError::Serialization)?;
         }
+        write_guard.publish();
 
         Ok(())
     }
