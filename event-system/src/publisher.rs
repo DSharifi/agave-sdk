@@ -42,10 +42,8 @@ impl<E: Event> Publisher<E> {
     /// Publishes the given batch of events on the stream.
     ///
     /// # Errors
-    /// If any event in the batch fails to send, [`PublishError`] is returned
-    /// and the remaining events in the batch are dropped.
-    ///
-    /// The events previous to the failing event are all sent.
+    /// If the batch fails to send or any event in it fails to serialize,
+    /// [`PublishError`] is returned and none of the events in the batch are sent.
     pub fn publish_batch(&mut self, events: &[E]) -> Result<(), PublishError> {
         match &mut self.inner {
             Backend::Platform(inner) => inner.publish_batch(events),

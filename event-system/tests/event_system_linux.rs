@@ -5,13 +5,14 @@ mod common;
 use {
     crate::common::TestContextBuilder,
     agave_event_system::{
-        CreateStreamError, Event, EventSystem, PublisherFactory, StreamConfig,
+        CreateStreamError, Event, EventSystem, PublisherFactory, StreamConfig, event,
+        publisher::{PublishError, Publisher},
         stream_name::StreamName,
         subscriber::{
             self, AvailableStream, DecodedMessage, TryConnectError, TryConnectTypedError,
         },
     },
-    common::{TEST_CONFIG, TEST_STREAM_NAME, TestEnumEvent, TestEvent},
+    common::{TEST_CONFIG, TEST_STREAM_NAME, TestEnumEvent, TestEvent, assert_is_empty},
     rstest::rstest,
     std::assert_matches,
     tempfile::TempDir,
@@ -221,4 +222,46 @@ fn dynamic_subscriber_can_connect_and_decode_events<E: Event>(
     assert_eq!(field.name(), "value");
     assert_eq!(field.value(), &Value::U64(42));
     assert!(fields.next().is_none(), "no extra fields are present");
+}
+
+#[event(max_serialized_size = 16)]
+#[derive(Debug, PartialEq)]
+struct BoundedEvent {
+    values: Vec<u8>,
+}
+
+fn fitting_event() -> BoundedEvent {
+    BoundedEvent { values: vec![1] }
+}
+
+/// Serializes to more than the `max_serialized_size` of [`BoundedEvent`].
+fn oversized_event() -> BoundedEvent {
+    BoundedEvent {
+        values: vec![2; 16],
+    }
+}
+
+#[rstest]
+#[case::single(|publisher: &mut Publisher<BoundedEvent>| publisher.publish(&oversized_event()))]
+#[case::batch(|publisher: &mut Publisher<BoundedEvent>| {
+    publisher.publish_batch(&[fitting_event(), oversized_event()])
+})]
+fn failed_serialization_sends_nothing(
+    #[case] publish_oversized: fn(&mut Publisher<BoundedEvent>) -> Result<(), PublishError>,
+) {
+    let test_context = TestContextBuilder::new()
+        .with_policy_enabling_all_streams()
+        .build();
+    let (mut publisher, mut subscriber) = test_context.create_stream_with_subscriber();
+
+    assert_matches!(
+        publish_oversized(&mut publisher),
+        Err(PublishError::Serialization(_))
+    );
+    assert_is_empty([&mut subscriber]);
+
+    publisher.publish(&fitting_event()).unwrap();
+    let received_event = subscriber.try_recv().unwrap().decode().unwrap();
+    assert_eq!(received_event, fitting_event());
+    assert_is_empty([&mut subscriber]);
 }

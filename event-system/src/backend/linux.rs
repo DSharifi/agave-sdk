@@ -9,7 +9,7 @@ use {
         stream_name::StreamName,
         stream_policy::{StreamPolicy, StreamRule},
     },
-    shaq::broadcast::{Broadcast, BroadcastConfig, Producer, ProducerId},
+    shaq::broadcast::{Broadcast, BroadcastConfig, Producer},
     std::{
         fs::{File, OpenOptions, create_dir, create_dir_all, remove_dir, remove_dir_all},
         io::{self, Write},
@@ -63,10 +63,6 @@ const REQUIRED_SEALS: libc::c_int = libc::F_SEAL_SHRINK | libc::F_SEAL_GROW | li
 const ANONYMOUS_FILE_NAME: *const libc::c_char = c"agave-event-stream".as_ptr();
 
 pub(crate) type EventQueueError = shaq::error::Error;
-
-/// Producer id passed to shaq for every publisher, as the event system does not
-/// identify publishers.
-const PRODUCER_ID: ProducerId = ProducerId::new(0);
 
 #[derive(Debug, Clone)]
 pub(crate) struct EventSystem {
@@ -284,7 +280,7 @@ struct StreamState<E: Event> {
 impl<E: Event> StreamState<E> {
     /// Creates a producer on the queue, or returns `None` while the stream is disabled.
     fn create_producer(&self) -> Option<Producer<E::QueueCell>> {
-        self.queue.as_ref()?.broadcast.producer(PRODUCER_ID).ok()
+        self.queue.as_ref()?.broadcast.producer().ok()
     }
 }
 

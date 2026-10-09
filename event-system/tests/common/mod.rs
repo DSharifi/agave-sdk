@@ -6,7 +6,7 @@
 
 use {
     agave_event_system::{
-        EventSystem, StreamConfig, event,
+        Event, EventSystem, StreamConfig, event,
         publisher::Publisher,
         stream_name::StreamName,
         stream_policy::StreamPolicy,
@@ -89,9 +89,9 @@ impl TestContext {
     }
 
     /// Creates [`TEST_STREAM_NAME`] with [`TEST_CONFIG`] and connects a typed subscriber to it.
-    pub(crate) fn create_stream_with_subscriber(
+    pub(crate) fn create_stream_with_subscriber<E: Event>(
         &self,
-    ) -> (Publisher<TestEvent>, Subscriber<Typed<TestEvent>>) {
+    ) -> (Publisher<E>, Subscriber<Typed<E>>) {
         let publisher = self
             .event_system
             .create_stream(TEST_STREAM_NAME, TEST_CONFIG)
@@ -102,7 +102,7 @@ impl TestContext {
             .available_streams()
             .next()
             .unwrap()
-            .try_connect_typed::<TestEvent>()
+            .try_connect_typed::<E>()
             .unwrap();
 
         (publisher, subscriber)

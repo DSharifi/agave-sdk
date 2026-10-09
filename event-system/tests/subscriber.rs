@@ -3,7 +3,7 @@
 mod common;
 
 use {
-    crate::common::{TEST_EVENT, TestContextBuilder},
+    crate::common::{TEST_EVENT, TestContextBuilder, TestEvent},
     agave_event_system::subscriber::RecvTimeoutError,
     rstest::rstest,
     std::{
@@ -19,7 +19,7 @@ fn recv_timeout_errors_when_no_message_is_published(
     let test_context = TestContextBuilder::new()
         .with_policy_enabling_all_streams()
         .build();
-    let (_publisher, mut subscriber) = test_context.create_stream_with_subscriber();
+    let (_publisher, mut subscriber) = test_context.create_stream_with_subscriber::<TestEvent>();
 
     let wait_start = Instant::now();
     let recv_result = subscriber.recv_timeout(timeout).map(|_message| ());
