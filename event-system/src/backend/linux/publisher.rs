@@ -25,7 +25,7 @@ impl<E: Event> Publisher<E> {
             return Ok(());
         };
 
-        // SAFETY: write_guard is initialized below before it is dropped by going out of scope.
+        // SAFETY: write_guard is initialized below before it is published
         let mut write_guard =
             unsafe { producer.try_reserve_write() }.ok_or(PublishError::FailedToSend)?;
 
@@ -56,7 +56,7 @@ impl<E: Event> Publisher<E> {
             return Ok(());
         };
 
-        // SAFETY: write_guard cells are initialized in the loop below before it is dropped by going out of scope.
+        // SAFETY: write_guard cells are initialized in the loop below before it is published
         let mut write_guard = unsafe { producer.try_reserve_write_batch(event_count) }
             .ok_or(PublishError::FailedToSend)?;
 
