@@ -28,8 +28,7 @@ use {
 pub(crate) use {
     publisher::Publisher,
     subscriber::{
-        AvailableStream, PublisherMetadata, PublishersMetadata, StreamExplorer, StreamMessage,
-        Subscriber,
+        AvailableStream, LaneMetadata, LanesMetadata, StreamExplorer, StreamMessage, Subscriber,
     },
 };
 

@@ -9,7 +9,7 @@ use {
 };
 
 #[test]
-fn publishers_metadata_for_all_lanes() {
+fn lanes_metadata_for_all_lanes() {
     const CAPACITY: usize = 4;
 
     let test_context = TestContextBuilder::new()
@@ -29,10 +29,10 @@ fn publishers_metadata_for_all_lanes() {
         Err(PublishError::FailedToSend)
     );
 
-    let publisher_lanes = subscriber.publishers_metadata();
-    let mut publisher_lanes_iter = publisher_lanes.iter();
+    let lanes_metadata = subscriber.lanes_metadata();
+    let mut lanes_metadata_iter = lanes_metadata.iter();
 
-    let first_lane = publisher_lanes_iter.next().unwrap();
+    let first_lane = lanes_metadata_iter.next().unwrap();
     assert_eq!(first_lane.lane(), 0);
     assert_eq!(
         first_lane.rejected_items(),
@@ -40,7 +40,7 @@ fn publishers_metadata_for_all_lanes() {
         "last publish above failed, so rejection count should be 1"
     );
 
-    let second_lane = publisher_lanes_iter.next().unwrap();
+    let second_lane = lanes_metadata_iter.next().unwrap();
     assert_eq!(second_lane.lane(), 1);
     assert_eq!(
         second_lane.rejected_items(),
@@ -49,7 +49,7 @@ fn publishers_metadata_for_all_lanes() {
     );
 
     assert_matches!(
-        publisher_lanes_iter.next(),
+        lanes_metadata_iter.next(),
         None,
         "the stream is configured with 2 publisher slots"
     );
