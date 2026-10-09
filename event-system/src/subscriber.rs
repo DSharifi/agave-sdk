@@ -92,6 +92,12 @@ impl<Mode> Subscriber<Mode> {
         self.backend.recv_timeout(timeout).map(StreamMessage::new)
     }
 
+    /// Returns the [`PublisherMetadata`] of every publisher lane of the stream,
+    /// including lanes that no publisher holds.
+    pub fn publishers_metadata(&self) -> PublishersMetadata {
+        PublishersMetadata(self.backend.publishers_metadata())
+    }
+
     fn new(backend: backend::Subscriber) -> Self {
         Self {
             backend,
@@ -158,17 +164,28 @@ impl<'a> StreamMessage<'a, Dynamic> {
     }
 }
 
-/// Metadata of the [`Publisher`](crate::publisher::Publisher) lane that a [`StreamMessage`] was published on.
+/// The [`PublisherMetadata`] of every publisher lane of a stream.
+#[derive(Debug)]
+pub struct PublishersMetadata(backend::PublishersMetadata);
+
+impl PublishersMetadata {
+    /// Iterates over the [`PublisherMetadata`] of each lane, in lane order.
+    pub fn iter(&self) -> impl Iterator<Item = PublisherMetadata<'_>> + '_ {
+        self.0.iter().map(PublisherMetadata)
+    }
+}
+
+/// Metadata of a [`Publisher`](crate::publisher::Publisher) lane of a stream.
 #[derive(Clone, Copy, Debug)]
 pub struct PublisherMetadata<'a>(backend::PublisherMetadata<'a>);
 
 impl PublisherMetadata<'_> {
-    /// The lane of the publisher that sent this event.
+    /// The index of this lane in the stream.
     pub fn lane(&self) -> usize {
         self.0.lane()
     }
 
-    /// The number of events the publisher could not publish on this lane because
+    /// The number of events that could not be published on this lane because
     /// subscribers did not consume them fast enough.
     pub fn rejected_items(&self) -> u64 {
         self.0.rejected_items()

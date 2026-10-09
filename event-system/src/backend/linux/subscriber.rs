@@ -64,6 +64,12 @@ impl Subscriber {
             read_guard,
         })
     }
+
+    pub(crate) fn publishers_metadata(&self) -> PublishersMetadata {
+        PublishersMetadata {
+            broadcast_handle: self.slice_consumer.broadcast_handle(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -83,6 +89,20 @@ impl<'a> StreamMessage<'a> {
 
     pub(crate) fn publisher_metadata(&self) -> PublisherMetadata<'_> {
         PublisherMetadata(self.read_guard.lane_metadata())
+    }
+}
+
+/// The metadata of every publisher lane of a stream.
+#[derive(Debug)]
+pub(crate) struct PublishersMetadata {
+    broadcast_handle: Broadcast<UnknownType>,
+}
+
+impl PublishersMetadata {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = PublisherMetadata<'_>> + '_ {
+        (0..self.broadcast_handle.producer_slots())
+            .map_while(|lane| self.broadcast_handle.lane_metadata(lane))
+            .map(PublisherMetadata)
     }
 }
 

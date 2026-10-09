@@ -137,6 +137,19 @@ impl Subscriber {
     ) -> Result<StreamMessage<'_>, RecvTimeoutError> {
         Err(RecvTimeoutError)
     }
+
+    pub(crate) fn publishers_metadata(&self) -> PublishersMetadata {
+        PublishersMetadata
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct PublishersMetadata;
+
+impl PublishersMetadata {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = PublisherMetadata<'_>> + '_ {
+        std::iter::empty()
+    }
 }
 
 #[derive(Debug)]

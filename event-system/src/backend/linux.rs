@@ -27,7 +27,10 @@ use {
 };
 pub(crate) use {
     publisher::Publisher,
-    subscriber::{AvailableStream, PublisherMetadata, StreamExplorer, StreamMessage, Subscriber},
+    subscriber::{
+        AvailableStream, PublisherMetadata, PublishersMetadata, StreamExplorer, StreamMessage,
+        Subscriber,
+    },
 };
 
 #[path = "linux/publisher.rs"]
