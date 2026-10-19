@@ -199,7 +199,6 @@ impl Server {
 
         Ok((
             AgaveSession {
-                flags: logon.flags,
                 tpu_to_pack: AgaveTpuToPackSession {
                     allocator,
                     producer: tpu_to_pack_queue,
