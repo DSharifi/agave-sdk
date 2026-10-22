@@ -274,8 +274,11 @@ impl<E: Event> PolicyControlledStream for EventStream<E> {
 struct StreamState<E: Event> {
     /// The stream's queue, which is `None` while the stream is disabled.
     queue: Option<StreamQueue<E>>,
-    /// Number of publishers that can still be created for the stream, as its
-    /// publisher slots are a lifetime budget.
+    /// Number of publishers that can still be created for the stream.
+    ///
+    /// The queue is None when the stream is disabled, thus we need this
+    /// separate counter to be able to reject publisher creations if
+    /// we exceed [`StreamConfig::publisher_slots`].
     remaining_publisher_slots: usize,
 }
 

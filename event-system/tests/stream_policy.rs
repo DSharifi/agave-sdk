@@ -228,24 +228,6 @@ fn publisher_slots_are_reserved_while_disabled(#[values(1, 2)] publisher_slots: 
     }
 }
 
-#[cfg(target_os = "linux")]
-#[test]
-fn publisher_slots_stay_retired_across_stream_policy_changes() {
-    let test_context = TestContextBuilder::new().build();
-    let publisher_factory = test_context
-        .event_system
-        .create_stream::<TestEvent>(TEST_STREAM_NAME, TEST_CONFIG)
-        .unwrap();
-
-    drop(publisher_factory.try_create_publisher().unwrap());
-    assert_matches!(publisher_factory.try_create_publisher(), None);
-
-    test_context
-        .event_system
-        .set_stream_policy("on".parse().unwrap());
-    assert_matches!(publisher_factory.try_create_publisher(), None);
-}
-
 #[rstest]
 #[case::white_space(" ")]
 #[case::tabbed("\t")]

@@ -123,16 +123,27 @@ fn publisher_creation_respects_slot_limit(#[values(1, 2, 4)] publisher_slots: us
         .create_stream(TEST_STREAM_NAME, stream_config)
         .unwrap();
 
-    for _ in 0..publisher_slots {
-        publisher_factory
-            .try_create_publisher()
-            .expect("publisher slot is available");
-    }
+    let mut publishers: Vec<_> = (0..publisher_slots)
+        .map(|_| {
+            publisher_factory
+                .try_create_publisher()
+                .expect("publisher slot is available")
+        })
+        .collect();
 
     assert_matches!(
         publisher_factory.try_create_publisher(),
         None,
         "publisher slots are exhausted"
+    );
+
+    drop(publishers.pop());
+    let mut reused_slot_publisher = publisher_factory
+        .try_create_publisher()
+        .expect("dropped publisher frees its slot");
+    assert!(
+        reused_slot_publisher.is_enabled(),
+        "dropped publisher releases its producer on the queue"
     );
 }
 

@@ -93,10 +93,7 @@ impl std::fmt::Debug for EventSystem {
 pub struct StreamConfig {
     /// Number of events retained in each lane.
     pub capacity: usize,
-    /// Maximum number of publishers that can be created for the stream.
-    ///
-    /// This slot count is a lifetime budget. Dropping a publisher permanently retires
-    /// that slot forever.
+    /// Maximum number of concurrent publishers that can be created for the stream.
     pub publisher_slots: usize,
     /// Maximum number of concurrent subscribers.
     pub subscriber_slots: usize,
