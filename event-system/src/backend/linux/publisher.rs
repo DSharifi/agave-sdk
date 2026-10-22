@@ -124,3 +124,13 @@ impl<E: Event> Debug for Publisher<E> {
             .finish_non_exhaustive()
     }
 }
+
+impl<E: Event> Drop for Publisher<E> {
+    fn drop(&mut self) {
+        // release the producer lane before bumping the slot count
+        self.producer = None;
+        let mut stream_state = self.stream.state.write().unwrap();
+        stream_state.remaining_publisher_slots =
+            stream_state.remaining_publisher_slots.saturating_add(1);
+    }
+}
