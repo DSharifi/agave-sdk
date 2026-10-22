@@ -108,17 +108,16 @@ impl EventSystem {
         stream_name: StreamName,
         stream_config: StreamConfig,
     ) -> Result<PublisherFactory<E>, CreateStreamError> {
-        let stream_name_lock = StreamNameLock::acquire(&self.event_system_directory, &stream_name)?;
+        let stream_name_lock = StreamNameLock::acquire(&self.event_system_directory, stream_name)?;
 
         // clean up stream directories left behind by a previous holder of the name
         self.event_system_directory
-            .remove_stream_directories(&stream_name)?;
+            .remove_stream_directories(&stream_name_lock)?;
 
         let stream = Arc::new(EventStream::new(
             self.event_system_directory.clone(),
-            stream_name,
-            stream_config,
             stream_name_lock,
+            stream_config,
         ));
 
         self.stream_policy_manager
@@ -219,7 +218,7 @@ impl<E: Event> std::fmt::Debug for PublisherFactory<E> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("PublisherFactory")
-            .field("stream_name", &self.stream.stream_name)
+            .field("stream_name", &self.stream.stream_name_lock.stream_name)
             .finish_non_exhaustive()
     }
 }
@@ -238,41 +237,37 @@ struct EventStream<E: Event> {
     ///
     /// Publishers load it on every publish, so it is kept on its own cache line.
     queue_generation: CachePadded<AtomicU64>,
-    stream_name: StreamName,
     stream_config: StreamConfig,
     state: RwLock<StreamState<E>>,
+    /// Declared after `state`, so the queue's directory is removed before
+    /// another event system can claim the stream name.
+    stream_name_lock: StreamNameLock,
     event_system_directory: Arc<EventSystemDirectory>,
-    // must be declared after `state` for correct drop order, such that
-    // the queue's directory is removed before another event system can take
-    // over the stream name.
-    _stream_name_lock: StreamNameLock,
 }
 
 impl<E: Event> EventStream<E> {
     /// Creates a disabled stream, which has no queue until a stream rule enables it.
     fn new(
         event_system_directory: Arc<EventSystemDirectory>,
-        stream_name: StreamName,
-        stream_config: StreamConfig,
         stream_name_lock: StreamNameLock,
+        stream_config: StreamConfig,
     ) -> Self {
         Self {
             queue_generation: CachePadded::new(AtomicU64::new(0)),
-            stream_name,
             stream_config,
             state: RwLock::new(StreamState {
                 queue: None,
                 remaining_publisher_slots: stream_config.publisher_slots,
             }),
+            stream_name_lock,
             event_system_directory,
-            _stream_name_lock: stream_name_lock,
         }
     }
 }
 
 impl<E: Event> PolicyControlledStream for EventStream<E> {
     fn stream_name(&self) -> &StreamName {
-        &self.stream_name
+        &self.stream_name_lock.stream_name
     }
 
     fn apply_stream_rule(&self, stream_rule: StreamRule) -> Result<(), CreateStreamError> {
@@ -319,11 +314,15 @@ impl<E: Event> StreamQueue<E> {
     fn create(stream: &EventStream<E>) -> Result<Self, CreateStreamError> {
         let event_stream_directory = stream
             .event_system_directory
-            .stream_path(STREAMS_DIRECTORY_NAME, &stream.stream_name);
+            .path
+            .join(STREAMS_DIRECTORY_NAME)
+            .join(stream.stream_name_lock.stream_name.as_str());
 
         let staging_directory = stream
             .event_system_directory
-            .stream_path(STAGING_DIRECTORY_NAME, &stream.stream_name);
+            .path
+            .join(STAGING_DIRECTORY_NAME)
+            .join(stream.stream_name_lock.stream_name.as_str());
 
         let temporary_event_stream_directory = StagingDirectory::new(staging_directory)?;
 
@@ -427,33 +426,32 @@ impl EventSystemDirectory {
                 continue;
             };
             // names in use are left to their holders
-            if let Ok(_stream_name_lock) = StreamNameLock::acquire(self, &stream_name) {
-                let _ = self.remove_stream_directories(&stream_name);
+            if let Ok(stream_name_lock) = StreamNameLock::acquire(self, stream_name) {
+                let _ = self.remove_stream_directories(&stream_name_lock);
             }
         }
         Ok(())
     }
 
-    /// Removes a stream's directories. The caller must hold the stream's name.
-    fn remove_stream_directories(&self, stream_name: &StreamName) -> io::Result<()> {
+    /// Removes a stream's directories.
+    fn remove_stream_directories(&self, stream_name_lock: &StreamNameLock) -> io::Result<()> {
         for parent_directory_name in [STAGING_DIRECTORY_NAME, STREAMS_DIRECTORY_NAME] {
-            match remove_dir_all(self.stream_path(parent_directory_name, stream_name)) {
+            let stream_directory = self
+                .path
+                .join(parent_directory_name)
+                .join(stream_name_lock.stream_name.as_str());
+            match remove_dir_all(stream_directory) {
                 Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
                 _ => {}
             }
         }
         Ok(())
     }
-
-    fn stream_path(&self, parent_directory_name: &str, stream_name: &StreamName) -> PathBuf {
-        self.path
-            .join(parent_directory_name)
-            .join(stream_name.as_str())
-    }
 }
 
 /// An exclusive claim on a stream name in an event system's directory.
 struct StreamNameLock {
+    stream_name: StreamName,
     _lock_file: File,
 }
 
@@ -461,9 +459,12 @@ impl StreamNameLock {
     /// Acquires a lock over a stream name
     fn acquire(
         event_system_directory: &EventSystemDirectory,
-        stream_name: &StreamName,
+        stream_name: StreamName,
     ) -> Result<Self, CreateStreamError> {
-        let lock_file_path = event_system_directory.stream_path(LOCKS_DIRECTORY_NAME, stream_name);
+        let lock_file_path = event_system_directory
+            .path
+            .join(LOCKS_DIRECTORY_NAME)
+            .join(stream_name.as_str());
 
         // opened read-only, so lock files created by other users can be locked too
         let lock_file = OpenOptions::new()
@@ -477,6 +478,7 @@ impl StreamNameLock {
         })?;
 
         Ok(Self {
+            stream_name,
             _lock_file: lock_file,
         })
     }
